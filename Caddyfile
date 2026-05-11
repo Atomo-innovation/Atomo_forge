@@ -1,0 +1,22 @@
+electron.local {
+  # `.local` domains can't get public ACME certs.
+  # This makes Caddy generate a local CA + cert (you can trust it via `caddy trust`).
+  tls internal
+
+  reverse_proxy https://127.0.0.1:8443 {
+    transport http {
+      tls_insecure_skip_verify
+    }
+  }
+}
+
+# LAN-friendly (no certificate install needed on other devices):
+# Open from other devices as: http://192.168.1.30
+:80 {
+  reverse_proxy https://127.0.0.1:8443 {
+    transport http {
+      tls_insecure_skip_verify
+    }
+  }
+}
+

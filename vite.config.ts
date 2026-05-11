@@ -39,18 +39,31 @@ function makeQuietLogger() {
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const apiTarget = "http://localhost:3003";
+  const devHost = env.VITE_DEV_HOST || "electron.local";
+  const devPort = Number(env.VITE_DEV_PORT || 8443);
+  const extraAllowedHosts = (env.VITE_ALLOWED_HOSTS || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   return ({
   customLogger: makeQuietLogger(),
   server: {
-    host: "::",
-    port: 8443,
+    // Bind on all interfaces, but allow a friendly local hostname like
+    // https://electron.local:8443 (add it to /etc/hosts).
+    host: true,
+    port: devPort,
     strictPort: false,
+    // Allow access via electron.local and via LAN IP/hostname for other devices.
+    allowedHosts: Array.from(new Set([devHost, ...extraAllowedHosts])),
     https: {
       key: fs.readFileSync(path.resolve(__dirname, "./devcert/key.pem")),
       cert: fs.readFileSync(path.resolve(__dirname, "./devcert/cert.pem")),
     },
+    origin: `https://${devHost}:${devPort}`,
     hmr: {
+      host: devHost,
+      clientPort: devPort,
       overlay: false,
     },
     proxy: {

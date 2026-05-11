@@ -1,0 +1,35 @@
+{
+  # Optional: set an email so Let's Encrypt can contact you (recommended).
+  # email you@example.com
+
+  # Force Let's Encrypt. If issuance fails, Caddy may try other issuers (e.g. ZeroSSL),
+  # which can require EAB and produce confusing errors. This keeps it simple.
+  acme_ca https://acme-v02.api.letsencrypt.org/directory
+}
+
+# ONLINE / PRODUCTION
+#
+# 1) Point DNS: app.yourdomain.com -> your server public IP
+# 2) Open firewall: allow inbound TCP 80 and 443
+# 3) Run the frontend build (npm run build) and serve ./dist
+# 4) Run your API (auth-server.cjs / forge api) on :3003
+#
+# Caddy will automatically obtain/renew a trusted HTTPS certificate (Let's Encrypt)
+# for a real domain (NOT .local).
+#
+# Replace app.yourdomain.com with your real domain.
+app.yourdomain.com {
+  encode zstd gzip
+
+  # Serve built frontend
+  root * ./dist
+  file_server
+
+  # SPA fallback (React Router)
+  try_files {path} /index.html
+
+  # Proxy API to your backend (keep DB code unchanged)
+  reverse_proxy /api/* 127.0.0.1:3003
+  reverse_proxy /universal/* 127.0.0.1:3003
+}
+
