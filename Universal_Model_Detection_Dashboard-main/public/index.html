@@ -1,0 +1,943 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ASNN Detection Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&family=Exo+2:wght@300;400;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#080c10;--surface:#0d1117;--surface2:#111820;
+  --border:#1e2d3d;--accent:#00d4ff;--accent2:#00ff88;
+  --warn:#ff6b35;--error:#ff4466;--text:#c9d1d9;--dim:#6e7681;
+  --glow:0 0 20px rgba(0,212,255,.3);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Exo 2',sans-serif;min-height:100vh;overflow-x:hidden}
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,212,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,212,255,.03) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
+
+/* ── Header ── */
+.header{display:flex;align-items:center;justify-content:space-between;padding:12px 28px;border-bottom:1px solid var(--border);background:rgba(13,17,23,.95);backdrop-filter:blur(10px);position:sticky;top:0;z-index:100;gap:16px;flex-wrap:wrap}
+.logo{display:flex;align-items:center;gap:10px;font-family:'Rajdhani',sans-serif;font-weight:700;font-size:20px;letter-spacing:3px;color:var(--accent);text-transform:uppercase;white-space:nowrap}
+.logo-box{width:32px;height:32px;border:2px solid var(--accent);border-radius:5px;display:flex;align-items:center;justify-content:center;animation:pulse-b 2s infinite}
+@keyframes pulse-b{0%,100%{box-shadow:0 0 0 0 rgba(0,212,255,.4)}50%{box-shadow:0 0 0 6px rgba(0,212,255,0)}}
+.hbar{display:flex;align-items:center;gap:20px;font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--dim);flex-wrap:wrap}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--dim);display:inline-block;margin-right:5px;transition:all .3s}
+.dot.ok{background:var(--accent2);box-shadow:0 0 8px var(--accent2);animation:blink 1.5s infinite}
+.dot.run{background:var(--warn);box-shadow:0 0 8px var(--warn);animation:blink .5s infinite}
+.dot.err{background:var(--error);box-shadow:0 0 8px var(--error)}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+#sysInfo{color:var(--accent);font-size:10px}
+
+/* ── Layout ── */
+.main{display:grid;grid-template-columns:340px 1fr;gap:0;min-height:calc(100vh - 57px);position:relative;z-index:1}
+
+/* ── Sidebar ── */
+.sidebar{border-right:1px solid var(--border);padding:20px;display:flex;flex-direction:column;gap:18px;overflow-y:auto;background:rgba(13,17,23,.6)}
+.slabel{font-family:'Share Tech Mono',monospace;font-size:10px;letter-spacing:3px;color:var(--accent);text-transform:uppercase;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.slabel::after{content:'';flex:1;height:1px;background:linear-gradient(to right,var(--border),transparent)}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:18px;position:relative;overflow:hidden}
+.card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--accent),transparent);opacity:0;transition:opacity .3s}
+.card:focus-within::before{opacity:1}
+
+/* Inputs */
+.ig{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
+.ig:last-child{margin-bottom:0}
+.il{font-size:10px;color:var(--dim);font-family:'Share Tech Mono',monospace;letter-spacing:1px}
+select,input[type=text],input[type=number]{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:6px;font-family:'Exo 2',sans-serif;font-size:13px;outline:none;transition:border-color .2s,box-shadow .2s;-webkit-appearance:none;cursor:pointer}
+select:focus,input[type=text]:focus,input[type=number]:focus{border-color:var(--accent);box-shadow:var(--glow)}
+.sw{position:relative}
+.si{position:absolute;right:10px;top:50%;transform:translateY(-50%);color:var(--accent);pointer-events:none;font-size:11px}
+
+/* Model info */
+.minfo{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px;font-family:'Share Tech Mono',monospace;font-size:10px;display:none;flex-direction:column;gap:6px;margin-top:10px}
+.minfo.on{display:flex}
+.ir{display:flex;justify-content:space-between;align-items:center}
+.ik{color:var(--dim)}
+.iv{color:var(--accent2);font-weight:600;text-align:right;max-width:60%;word-break:break-all}
+
+/* Upload zone */
+.uzone{border:2px dashed var(--border);border-radius:8px;padding:20px;text-align:center;cursor:pointer;transition:all .2s;position:relative;background:var(--bg)}
+.uzone:hover,.uzone.over{border-color:var(--accent);background:rgba(0,212,255,.03)}
+.uzone input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.uzone .ui{font-size:24px;margin-bottom:6px;color:var(--accent)}
+.uzone .ut{font-size:11px;color:var(--dim)}
+.uzone .ut strong{color:var(--text);display:block;font-size:12px;margin-bottom:3px}
+.fname{margin-top:6px;font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--accent2);display:none;word-break:break-all}
+
+/* Range */
+input[type=range]{-webkit-appearance:none;width:100%;height:4px;background:var(--border);border-radius:2px;outline:none;cursor:pointer;padding:0;border:none;box-shadow:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;background:var(--accent);border-radius:50%;box-shadow:0 0 6px var(--accent)}
+.rv{font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--accent);text-align:right;margin-top:2px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+
+/* Buttons */
+.runbtn{width:100%;padding:13px;background:linear-gradient(135deg,rgba(0,212,255,.15),rgba(0,255,136,.1));border:1px solid var(--accent);color:var(--accent);font-family:'Rajdhani',sans-serif;font-size:15px;font-weight:700;letter-spacing:4px;text-transform:uppercase;border-radius:6px;cursor:pointer;transition:all .2s;position:relative;overflow:hidden}
+.runbtn:hover{background:linear-gradient(135deg,rgba(0,212,255,.25),rgba(0,255,136,.15));box-shadow:var(--glow);transform:translateY(-1px)}
+.runbtn:disabled{opacity:.4;cursor:not-allowed;transform:none}
+.stopbtn{width:100%;padding:10px;background:rgba(255,107,53,.1);border:1px solid var(--warn);color:var(--warn);font-family:'Rajdhani',sans-serif;font-size:13px;font-weight:600;letter-spacing:3px;text-transform:uppercase;border-radius:6px;cursor:pointer;transition:all .2s;display:none}
+.stopbtn.on{display:block}
+.stopbtn:hover{background:rgba(255,107,53,.2);box-shadow:0 0 15px rgba(255,107,53,.3)}
+.shimmer{position:absolute;top:-50%;left:-100%;width:60%;height:200%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.1),transparent);transform:skewX(-20deg);animation:shim 2.5s infinite}
+@keyframes shim{0%{left:-100%}100%{left:200%}}
+.tbtn{padding:8px;background:transparent;border:1px solid var(--border);color:var(--dim);font-family:'Rajdhani',sans-serif;font-size:11px;letter-spacing:2px;border-radius:4px;cursor:pointer;transition:all .2s;width:100%;margin-top:6px}
+.tbtn:hover{border-color:var(--accent);color:var(--accent)}
+
+/* Command preview */
+.cmd{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--accent2);line-height:1.7;word-break:break-all;min-height:55px;white-space:pre-wrap}
+
+/* Hidden fields */
+.field{display:none}
+.field.on{display:block}
+
+/* ── Output panel ── */
+.outpanel{display:flex;flex-direction:column;padding:20px;gap:14px}
+.outheader{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.stats{display:flex;gap:10px;flex-wrap:wrap}
+.scard{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px 16px;font-family:'Share Tech Mono',monospace;min-width:90px}
+.sl{font-size:9px;color:var(--dim);letter-spacing:2px;text-transform:uppercase;margin-bottom:3px}
+.sv{font-size:20px;color:var(--accent);font-weight:700;line-height:1}
+.su{font-size:9px;color:var(--dim)}
+
+/* Output window */
+.outwin{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;position:relative;min-height:420px;display:flex;align-items:center;justify-content:center}
+.corner{position:absolute;width:18px;height:18px;border-color:var(--accent);border-style:solid;z-index:2;opacity:.5}
+.tl{top:8px;left:8px;border-width:2px 0 0 2px}
+.tr{top:8px;right:8px;border-width:2px 2px 0 0}
+.bl{bottom:8px;left:8px;border-width:0 0 2px 2px}
+.br{bottom:8px;right:8px;border-width:0 2px 2px 0}
+.scan-ov{position:absolute;inset:0;pointer-events:none;overflow:hidden;display:none;z-index:3}
+.scan-ov.on{display:block}
+.scan-ov::after{content:'';position:absolute;width:100%;height:3px;background:linear-gradient(90deg,transparent,rgba(0,212,255,.5),transparent);animation:sco 2.5s linear infinite}
+@keyframes sco{0%{top:-3px}100%{top:100%}}
+#outCanvas{max-width:100%;max-height:100%;display:none;object-fit:contain}
+#outCanvas.on{display:block}
+.ph{display:flex;flex-direction:column;align-items:center;gap:14px;color:var(--dim)}
+.phi{width:72px;height:72px;border:2px solid var(--border);border-radius:50%;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+.scanl{position:absolute;width:100%;height:2px;background:linear-gradient(90deg,transparent,rgba(0,212,255,.5),transparent);animation:sc 2s linear infinite}
+@keyframes sc{0%{top:-2px}100%{top:100%}}
+
+/* WS connection banner */
+.ws-banner{padding:6px 14px;border-radius:4px;font-family:'Share Tech Mono',monospace;font-size:10px;letter-spacing:1px;display:none}
+.ws-banner.on{display:block}
+.ws-banner.connecting{background:rgba(255,107,53,.1);border:1px solid var(--warn);color:var(--warn)}
+.ws-banner.connected{background:rgba(0,255,136,.08);border:1px solid var(--accent2);color:var(--accent2)}
+.ws-banner.disconnected{background:rgba(255,68,102,.1);border:1px solid var(--error);color:var(--error)}
+
+/* Log */
+.logpanel{background:var(--surface);border:1px solid var(--border);border-radius:8px;max-height:160px;overflow-y:auto;font-family:'Share Tech Mono',monospace;font-size:10px}
+.loghdr{padding:8px 12px;border-bottom:1px solid var(--border);color:var(--dim);letter-spacing:2px;font-size:9px;display:flex;justify-content:space-between;position:sticky;top:0;background:var(--surface);z-index:1}
+.logclr{color:var(--accent);cursor:pointer}
+.logclr:hover{text-decoration:underline}
+.logentries{padding:6px}
+.le{padding:3px 6px;border-radius:3px;display:flex;gap:10px;align-items:baseline;font-size:10px}
+.le:nth-child(odd){background:rgba(255,255,255,.02)}
+.lt{color:var(--dim);min-width:75px;font-size:9px}
+.lcls{color:var(--accent2)}
+.lsc{color:var(--warn)}
+.lbox{color:var(--dim);font-size:9px}
+.ll-warn{color:var(--warn)}
+.ll-err{color:var(--error)}
+.ll-info{color:var(--text)}
+.ll-sim{color:var(--dim);font-style:italic}
+
+/* Toast */
+.toast{position:fixed;bottom:20px;right:20px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 18px;font-family:'Share Tech Mono',monospace;font-size:11px;z-index:1000;transform:translateY(100px);opacity:0;transition:all .3s;max-width:280px}
+.toast.show{transform:translateY(0);opacity:1}
+.toast.ok{border-color:var(--accent2);color:var(--accent2)}
+.toast.err{border-color:var(--error);color:var(--error)}
+.toast.info{border-color:var(--accent);color:var(--accent)}
+
+/* Note */
+.note{background:rgba(0,212,255,.04);border:1px solid rgba(0,212,255,.15);border-radius:6px;padding:10px 12px;font-size:11px;color:var(--dim);line-height:1.6}
+.note strong{color:var(--accent)}
+
+/* Scrollbar */
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+::-webkit-scrollbar-thumb:hover{background:var(--accent)}
+
+@media(max-width:900px){.main{grid-template-columns:1fr}.sidebar{border-right:none;border-bottom:1px solid var(--border)}}
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="logo">
+    <div class="logo-box">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="2" y="3" width="20" height="14" rx="2"/>
+        <path d="M7 8l2 2 4-4 2 2" stroke="#00d4ff" stroke-width="2.5"/>
+      </svg>
+    </div>
+    ASNN DETECT
+  </div>
+  <div id="wsBanner" class="ws-banner">◉ CONNECTING...</div>
+  <div class="hbar">
+    <span><span class="dot" id="dotModel"></span><span id="lblModel">NO MODEL</span></span>
+    <span><span class="dot" id="dotInfer"></span><span id="lblInfer">IDLE</span></span>
+    <span id="sysInfo">loading...</span>
+    <span id="clock" style="color:var(--accent)">--:--:--</span>
+  </div>
+</header>
+
+<div class="main">
+<!-- ═══ SIDEBAR ═══ -->
+<aside class="sidebar">
+
+  <!-- Model select -->
+  <div>
+    <div class="slabel">Detection Model</div>
+    <div class="card">
+      <div class="ig">
+        <div class="il">Select Model</div>
+        <div class="sw">
+          <select id="selModel" onchange="onModelChange()">
+            <option value="">-- Loading models... --</option>
+          </select>
+          <span class="si">▾</span>
+        </div>
+      </div>
+      <div class="minfo" id="minfo">
+        <div class="ir"><span class="ik">MODEL</span><span class="iv" id="iNb">-</span></div>
+        <div class="ir"><span class="ik">LIBRARY</span><span class="iv" id="iLib">-</span></div>
+        <div class="ir"><span class="ik">CLASSES</span><span class="iv" id="iCls">-</span></div>
+        <div class="ir"><span class="ik">NUM_CLS</span><span class="iv" id="iNum">-</span></div>
+        <div class="ir"><span class="ik">LISTSIZE</span><span class="iv" id="iList">-</span></div>
+        <div class="ir"><span class="ik">YAML</span><span class="iv" id="iYaml" style="color:var(--accent2)">-</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Input source -->
+  <div>
+    <div class="slabel">Input Source</div>
+    <div class="card">
+      <div class="ig">
+        <div class="il">Input Type</div>
+        <div class="sw">
+          <select id="selInput" onchange="onInputChange()">
+            <option value="">-- Select Input --</option>
+            <option value="webcam">📷 Webcam (USB/MIPI)</option>
+            <option value="rtsp">📡 RTSP Stream</option>
+            <option value="video">🎬 Video File</option>
+            <option value="image">🖼 Image File</option>
+          </select>
+          <span class="si">▾</span>
+        </div>
+      </div>
+
+      <!-- RTSP -->
+      <div class="field" id="fRtsp">
+        <div class="ig">
+          <div class="il">RTSP URL</div>
+          <input type="text" id="rtspUrl" placeholder="rtsp://user:pass@192.168.1.100:554/stream" oninput="updateCmd()">
+        </div>
+      </div>
+
+      <!-- Webcam -->
+      <div class="field" id="fWebcam">
+        <div class="grid2" style="margin-top:4px">
+          <div class="ig">
+            <div class="il">Device Index</div>
+            <div class="sw">
+              <select id="camDev" onchange="updateCmd()">
+                <option value="0">Camera 0</option>
+                <option value="1">Camera 1</option>
+                <option value="2">Camera 2</option>
+              </select><span class="si">▾</span>
+            </div>
+          </div>
+          <div class="ig">
+            <div class="il">Capture Type</div>
+            <div class="sw">
+              <select id="capType" onchange="updateCmd()">
+                <option value="usb">USB (V4L2)</option>
+                <option value="mipi">MIPI (GStreamer)</option>
+              </select><span class="si">▾</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Video -->
+      <div class="field" id="fVideo">
+        <div class="uzone" id="vidZone">
+          <input type="file" id="vidFile" accept="video/*" onchange="handleUpload('video',event)">
+          <div class="ui">▶</div>
+          <div class="ut"><strong>Drop video or click to browse</strong>MP4 · AVI · MOV · MKV</div>
+        </div>
+        <div class="fname" id="vidName"></div>
+        <div id="vidProgress" style="display:none;margin-top:6px">
+          <div style="height:3px;background:var(--border);border-radius:2px;overflow:hidden">
+            <div id="vidBar" style="height:100%;background:var(--accent);width:0%;transition:width .1s"></div>
+          </div>
+          <div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--dim);margin-top:3px" id="vidPct">0%</div>
+        </div>
+      </div>
+
+      <!-- Image -->
+      <div class="field" id="fImage">
+        <div class="uzone" id="imgZone">
+          <input type="file" id="imgFile" accept="image/*" onchange="handleUpload('image',event)">
+          <div class="ui">◉</div>
+          <div class="ut"><strong>Drop image or click to browse</strong>JPG · PNG · BMP · WEBP</div>
+        </div>
+        <div class="fname" id="imgName"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Parameters -->
+  <div>
+    <div class="slabel">Inference Params</div>
+    <div class="card">
+      <div class="ig">
+        <div style="display:flex;justify-content:space-between"><div class="il">OBJ THRESHOLD</div><div class="rv" id="rvObj">0.40</div></div>
+        <input type="range" min=".1" max=".9" step=".05" value=".4" id="slObj" oninput="document.getElementById('rvObj').textContent=parseFloat(this.value).toFixed(2);updateCmd()">
+      </div>
+      <div class="ig">
+        <div style="display:flex;justify-content:space-between"><div class="il">NMS THRESHOLD</div><div class="rv" id="rvNms">0.50</div></div>
+        <input type="range" min=".1" max=".9" step=".05" value=".5" id="slNms" oninput="document.getElementById('rvNms').textContent=parseFloat(this.value).toFixed(2);updateCmd()">
+      </div>
+      <div class="grid2">
+        <div class="ig">
+          <div class="il">PLATFORM</div>
+          <div class="sw"><select id="platform" onchange="updateCmd()"><option>ONNX</option><option>TFLite</option></select><span class="si">▾</span></div>
+        </div>
+        <div class="ig">
+          <div class="il">LOG LEVEL</div>
+          <div class="sw"><select id="logLevel" onchange="updateCmd()"><option value="0">0 · Minimal</option><option value="1">1 · Normal</option><option value="2">2 · Verbose</option></select><span class="si">▾</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Actions -->
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <button class="runbtn" id="runBtn" onclick="startDetection()"><div class="shimmer"></div>▶ RUN DETECTION</button>
+    <button class="stopbtn" id="stopBtn" onclick="stopDetection()">■ STOP</button>
+  </div>
+
+  <!-- Command -->
+  <div>
+    <div class="slabel">Python Command</div>
+    <div class="cmd" id="cmdPrev"><span style="color:var(--dim)">// Select model & input</span></div>
+    <button class="tbtn" onclick="copyCmd()">COPY COMMAND</button>
+  </div>
+
+</aside>
+
+<!-- ═══ OUTPUT ═══ -->
+<div class="outpanel">
+  <div class="outheader">
+    <div class="slabel" style="margin-bottom:0;min-width:120px">Detection Output</div>
+    <div class="stats">
+      <div class="scard"><div class="sl">FPS</div><div><span class="sv" id="sFps">--</span> <span class="su">f/s</span></div></div>
+      <div class="scard"><div class="sl">Inference</div><div><span class="sv" id="sInf">--</span> <span class="su">ms</span></div></div>
+      <div class="scard"><div class="sl">Detections</div><div><span class="sv" id="sDet">0</span></div></div>
+      <div class="scard"><div class="sl">Frames</div><div><span class="sv" id="sFrames">0</span></div></div>
+    </div>
+  </div>
+
+  <div class="outwin" id="outWin">
+    <div class="corner tl"></div><div class="corner tr"></div>
+    <div class="corner bl"></div><div class="corner br"></div>
+    <div class="scan-ov" id="scanOv"></div>
+
+    <div class="ph" id="ph">
+      <div class="phi">
+        <div class="scanl"></div>
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="rgba(0,212,255,.4)" stroke-width="1.5">
+          <circle cx="12" cy="12" r="3"/><path d="M2 12a10 10 0 1 1 20 0"/><path d="M7 12a5 5 0 0 1 10 0"/>
+        </svg>
+      </div>
+      <div style="font-family:'Share Tech Mono',monospace;font-size:12px">SELECT MODEL & INPUT TO BEGIN</div>
+      <div style="font-size:10px;color:var(--dim);font-family:'Share Tech Mono',monospace">ASNN DETECTION ENGINE READY</div>
+    </div>
+
+    <canvas id="outCanvas"></canvas>
+  </div>
+
+  <!-- Log -->
+  <div class="logpanel">
+    <div class="loghdr">
+      <span>▸ DETECTION LOG</span>
+      <span class="logclr" onclick="clearLog()">CLEAR</span>
+    </div>
+    <div class="logentries" id="logE">
+      <div style="padding:4px 6px;color:var(--dim)">// Waiting for inference...</div>
+    </div>
+  </div>
+
+  <div class="note">
+    <strong>Server Mode:</strong> Running on your aarch64 device. All inference runs locally via Python. Connect from any device on the same network using the IP shown in the header.
+    Video/image files are uploaded to the device's <code style="color:var(--accent2)">uploads/</code> folder. RTSP and webcam streams run directly on the device.
+  </div>
+</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ════════════════════════════════════════════
+// State
+// ════════════════════════════════════════════
+const WS_URL  = `ws://${location.host}`;
+const API     = '';   // same origin
+
+let models       = [];
+let curModel     = null;
+let sessionId    = null;
+let ws           = null;
+let wsReady      = false;
+let isRunning    = false;
+let uploadedFile = null;  // { filename, path, type }
+let frameCount   = 0;
+let lastFrameTime= Date.now();
+let animId       = null;
+
+// Canvas drawing state (for simulated/real frame overlay)
+const canvas  = document.getElementById('outCanvas');
+const ctx     = canvas.getContext('2d');
+
+// ════════════════════════════════════════════
+// Boot
+// ════════════════════════════════════════════
+async function init() {
+  setupClock();
+  await loadSystemInfo();
+  await loadModels();
+  connectWS();
+  setupDragDrop('vidZone', 'vidFile');
+  setupDragDrop('imgZone', 'imgFile');
+  updateCmd();
+}
+
+// ════════════════════════════════════════════
+// System info
+// ════════════════════════════════════════════
+async function loadSystemInfo() {
+  try {
+    const r = await fetch(`${API}/api/system`);
+    const d = await r.json();
+    const ips = d.ip.filter(i => !i.startsWith('127.')).join(' · ');
+    document.getElementById('sysInfo').textContent =
+      `${d.arch} · ${d.hostname} · ${ips || 'localhost'}:${d.port}`;
+  } catch(e) {
+    document.getElementById('sysInfo').textContent = location.host;
+  }
+}
+
+// ════════════════════════════════════════════
+// Models
+// ════════════════════════════════════════════
+async function loadModels() {
+  try {
+    const r = await fetch(`${API}/api/models`);
+    const d = await r.json();
+    models = d.models || [];
+    populateModelSelect();
+  } catch(e) {
+    toast('Failed to load models from server', 'err');
+  }
+}
+
+function populateModelSelect() {
+  const sel = document.getElementById('selModel');
+  sel.innerHTML = '<option value="">-- Choose Detection Target --</option>';
+  if (models.length === 0) {
+    sel.innerHTML += '<option value="" disabled>No models found in /models dir</option>';
+    return;
+  }
+  models.forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m.name;
+    opt.textContent = `${m.name.toUpperCase()}  —  ${m.classes.join(', ')}`;
+    sel.appendChild(opt);
+  });
+}
+
+function onModelChange() {
+  const name = document.getElementById('selModel').value;
+  curModel = models.find(m => m.name === name) || null;
+  const info = document.getElementById('minfo');
+
+  if (!curModel) { info.classList.remove('on'); setDot('model', ''); updateCmd(); return; }
+
+  document.getElementById('iNb').textContent   = curModel.nb;
+  document.getElementById('iLib').textContent  = curModel.lib;
+  document.getElementById('iCls').textContent  = curModel.classes.join(', ');
+  document.getElementById('iNum').textContent  = curModel.num_cls;
+  document.getElementById('iList').textContent = curModel.listsize;
+  document.getElementById('iYaml').textContent = curModel.yaml || 'N/A';
+  info.classList.add('on');
+
+  setDot('model', 'ok');
+  document.getElementById('lblModel').textContent = name.toUpperCase() + ' LOADED';
+  updateCmd();
+  toast(`Model loaded: ${name}`, 'ok');
+}
+
+// ════════════════════════════════════════════
+// Input type
+// ════════════════════════════════════════════
+function onInputChange() {
+  const t = document.getElementById('selInput').value;
+  ['Rtsp','Webcam','Video','Image'].forEach(n => {
+    document.getElementById('f'+n).classList.toggle('on', 'f'+n === 'f'+capitalize(t));
+  });
+
+  // Clear uploaded file when switching type
+  if (t !== 'video' && t !== 'image') uploadedFile = null;
+  updateCmd();
+}
+
+function capitalize(s) { return s ? s[0].toUpperCase() + s.slice(1) : ''; }
+
+// ════════════════════════════════════════════
+// File upload to server
+// ════════════════════════════════════════════
+async function handleUpload(type, e) {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const nameEl = document.getElementById(type === 'video' ? 'vidName' : 'imgName');
+  nameEl.textContent = `⏫ Uploading ${file.name}...`;
+  nameEl.style.display = 'block';
+
+  // Show progress bar for video
+  const prog = document.getElementById('vidProgress');
+  const bar  = document.getElementById('vidBar');
+  const pct  = document.getElementById('vidPct');
+  if (type === 'video' && prog) { prog.style.display = 'block'; bar.style.width = '0%'; }
+
+  const fd = new FormData();
+  fd.append('file', file);
+
+  // Upload with XHR for progress
+  await new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${API}/api/upload`);
+    xhr.upload.onprogress = (ev) => {
+      if (ev.lengthComputable) {
+        const p = Math.round(ev.loaded / ev.total * 100);
+        if (bar) bar.style.width = p + '%';
+        if (pct) pct.textContent = p + '%';
+      }
+    };
+    xhr.onload = () => {
+      if (xhr.status === 200) {
+        const data = JSON.parse(xhr.responseText);
+        uploadedFile = { filename: data.filename, path: data.path, originalname: data.originalname, type };
+        nameEl.textContent = `✓ ${data.originalname}`;
+        nameEl.style.color = 'var(--accent2)';
+        if (prog) { bar.style.width = '100%'; setTimeout(() => prog.style.display = 'none', 800); }
+        updateCmd();
+        resolve();
+      } else { reject(new Error('Upload failed')); }
+    };
+    xhr.onerror = reject;
+    xhr.send(fd);
+  }).catch(err => {
+    nameEl.textContent = `✗ Upload failed: ${err.message}`;
+    nameEl.style.color = 'var(--error)';
+    toast('Upload failed', 'err');
+  });
+}
+
+// ════════════════════════════════════════════
+// Command preview
+// ════════════════════════════════════════════
+function updateCmd() {
+  const el = document.getElementById('cmdPrev');
+  if (!curModel) { el.innerHTML = '<span style="color:var(--dim)">// Select a model first</span>'; return; }
+
+  const inputType = document.getElementById('selInput').value;
+  let typeStr = '', devStr = '';
+
+  if (inputType === 'webcam') {
+    typeStr = document.getElementById('capType').value;
+    devStr  = document.getElementById('camDev').value;
+  } else if (inputType === 'rtsp') {
+    typeStr = 'rtsp';
+    devStr  = document.getElementById('rtspUrl').value || 'rtsp://...';
+  } else if (inputType === 'video') {
+    typeStr = 'video';
+    devStr  = uploadedFile ? `/path/uploads/${uploadedFile.filename}` : '/path/to/video.mp4';
+  } else if (inputType === 'image') {
+    typeStr = 'image';
+    devStr  = uploadedFile ? `/path/uploads/${uploadedFile.filename}` : '/path/to/image.jpg';
+  }
+
+  const obj = document.getElementById('slObj').value;
+  const nms = document.getElementById('slNms').value;
+  const lvl = document.getElementById('logLevel').value;
+  const m   = curModel;
+
+  el.textContent = `python3 detect.py \\
+  --model   ${m.dir}/${m.nb} \\
+  --library ${m.dir}/${m.lib} \\
+  --type    ${typeStr || '<type>'} \\
+  --device  ${devStr || '<device>'} \\
+  --level   ${lvl}
+# OBJ_THRESH=${parseFloat(obj).toFixed(2)}, NMS_THRESH=${parseFloat(nms).toFixed(2)}
+# Classes: ${m.classes.join(', ')} (NUM_CLS=${m.num_cls}, LISTSIZE=${m.listsize})`;
+}
+
+function copyCmd() {
+  navigator.clipboard.writeText(document.getElementById('cmdPrev').textContent)
+    .then(() => toast('Command copied!', 'ok'));
+}
+
+// ════════════════════════════════════════════
+// WebSocket
+// ════════════════════════════════════════════
+function connectWS() {
+  setBanner('connecting', '◉ CONNECTING...');
+  ws = new WebSocket(WS_URL);
+
+  ws.onopen = () => {
+    wsReady = true;
+    setBanner('connected', '● CONNECTED');
+    toast('Connected to device', 'ok');
+
+    // Re-attach if session exists
+    if (sessionId) wsend({ type: 'attach', sessionId });
+  };
+
+  ws.onmessage = (e) => {
+    let msg;
+    try { msg = JSON.parse(e.data); } catch(err) { return; }
+    handleWSMessage(msg);
+  };
+
+  ws.onclose = () => {
+    wsReady = false;
+    setBanner('disconnected', '○ DISCONNECTED — Reconnecting...');
+    setTimeout(connectWS, 2000);
+  };
+
+  ws.onerror = () => {};
+}
+
+function wsend(data) {
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(data));
+}
+
+function handleWSMessage(msg) {
+  switch(msg.type) {
+    case 'status':
+      onStatus(msg); break;
+    case 'inference':
+      onInference(msg); break;
+    case 'log':
+      onLog(msg); break;
+    case 'error':
+      toast(msg.message, 'err'); break;
+    case 'models_updated':
+      models = msg.models;
+      populateModelSelect();
+      toast('Model list updated', 'info'); break;
+    case 'attached':
+      break;
+  }
+}
+
+function onStatus(msg) {
+  if (msg.status === 'running') {
+    setDot('infer', 'run');
+    document.getElementById('lblInfer').textContent = msg.simulated ? 'SIMULATED' : 'RUNNING';
+    document.getElementById('scanOv').classList.add('on');
+  } else if (msg.status === 'stopped') {
+    setDot('infer', '');
+    document.getElementById('lblInfer').textContent = 'IDLE';
+    document.getElementById('scanOv').classList.remove('on');
+  }
+}
+
+function onInference(msg) {
+  frameCount++;
+  document.getElementById('sFrames').textContent = msg.frame || frameCount;
+  document.getElementById('sDet').textContent    = (msg.detections || []).length;
+  if (msg.fps)          document.getElementById('sFps').textContent = msg.fps;
+  if (msg.inference_ms) document.getElementById('sInf').textContent = msg.inference_ms;
+
+  // Draw real frame + boxes
+  onInferenceFrame(msg);
+
+  // Log detections occasionally
+  if (msg.detections && msg.detections.length > 0 && Math.random() > 0.75) {
+    const d = msg.detections[0];
+    addLogDetection(d.class_name, d.score, d.box);
+  }
+}
+
+function onLog(msg) {
+  const level = msg.level || 'info';
+  if (level === 'stderr' || level === 'warn') {
+    addLog(msg.message, level === 'stderr' ? 'll-err' : 'll-warn');
+  } else {
+    addLog(msg.message, 'll-info');
+  }
+}
+
+// ════════════════════════════════════════════
+// Start / Stop
+// ════════════════════════════════════════════
+async function startDetection() {
+  if (!curModel) { toast('Select a model first', 'err'); return; }
+  const inputType = document.getElementById('selInput').value;
+  if (!inputType) { toast('Select an input type', 'err'); return; }
+  if ((inputType === 'video' || inputType === 'image') && !uploadedFile) {
+    toast('Upload a file first', 'err'); return;
+  }
+  if (inputType === 'rtsp' && !document.getElementById('rtspUrl').value.trim()) {
+    toast('Enter RTSP URL', 'err'); return;
+  }
+
+  // Build inputValue
+  let inputValue = '';
+  if (inputType === 'webcam')
+    inputValue = `${document.getElementById('capType').value}:${document.getElementById('camDev').value}`;
+  else if (inputType === 'rtsp')
+    inputValue = document.getElementById('rtspUrl').value.trim();
+  else if (inputType === 'video' || inputType === 'image')
+    inputValue = uploadedFile.path;
+
+  // Request session from server
+  let data;
+  try {
+    const resp = await fetch(`${API}/api/inference/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        modelName:  curModel.name,
+        inputType,
+        inputValue,
+        objThresh:  parseFloat(document.getElementById('slObj').value),
+        nmsThresh:  parseFloat(document.getElementById('slNms').value),
+        platform:   document.getElementById('platform').value,
+        logLevel:   document.getElementById('logLevel').value
+      })
+    });
+    data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Server error');
+  } catch(e) {
+    toast('Failed to start: ' + e.message, 'err');
+    return;
+  }
+
+  sessionId = data.sessionId;
+  isRunning  = true;
+  frameCount = 0;
+
+  document.getElementById('runBtn').disabled = true;
+  document.getElementById('stopBtn').classList.add('on');
+  document.getElementById('ph').style.display = 'none';
+  canvas.classList.add('on');
+  canvas.width  = 640;
+  canvas.height = 480;
+
+  // Tell WS to start
+  wsend({ type: 'start', sessionId });
+  toast('Inference started', 'ok');
+}
+
+async function stopDetection() {
+  if (sessionId) {
+    await fetch(`${API}/api/inference/stop/${sessionId}`, { method: 'POST' });
+    wsend({ type: 'stop', sessionId });
+  }
+
+  isRunning  = false;
+  sessionId  = null;
+
+  document.getElementById('runBtn').disabled = false;
+  document.getElementById('stopBtn').classList.remove('on');
+  document.getElementById('scanOv').classList.remove('on');
+  setDot('infer', '');
+  document.getElementById('lblInfer').textContent = 'IDLE';
+  document.getElementById('sFps').textContent    = '--';
+  document.getElementById('sInf').textContent    = '--';
+
+  canvas.classList.remove('on');
+  document.getElementById('ph').style.display = 'flex';
+  toast('Detection stopped', 'info');
+}
+
+// ════════════════════════════════════════════
+// Canvas drawing — real JPEG frame + overlay boxes
+// ════════════════════════════════════════════
+const frameImg = new Image();
+
+function onInferenceFrame(msg) {
+  const { detections, jpeg, simulated } = msg;
+
+  if (jpeg) {
+    // Decode real frame from device, then draw boxes on top
+    frameImg.onload = () => {
+      if (canvas.width !== frameImg.naturalWidth || canvas.height !== frameImg.naturalHeight) {
+        canvas.width  = frameImg.naturalWidth;
+        canvas.height = frameImg.naturalHeight;
+      }
+      ctx.drawImage(frameImg, 0, 0);    // <-- actual video frame
+      drawBoxes(detections || []);      // <-- overlay boxes
+    };
+    frameImg.src = 'data:image/jpeg;base64,' + jpeg;
+  } else {
+    // No frame (e.g. pure simulation without OpenCV) — dark background
+    drawFallbackFrame(detections || [], simulated);
+  }
+}
+
+function drawFallbackFrame(detections, simulated) {
+  ctx.fillStyle = '#080c10';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = 'rgba(0,212,255,.05)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x < canvas.width; x += 40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,canvas.height); ctx.stroke(); }
+  for (let y = 0; y < canvas.height; y += 40) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvas.width,y); ctx.stroke(); }
+  const sy = ((Date.now()/3000)%1)*canvas.height;
+  const sg = ctx.createLinearGradient(0,sy-20,0,sy+20);
+  sg.addColorStop(0,'transparent'); sg.addColorStop(.5,'rgba(0,212,255,.1)'); sg.addColorStop(1,'transparent');
+  ctx.fillStyle = sg; ctx.fillRect(0,sy-20,canvas.width,40);
+  if (simulated) {
+    ctx.fillStyle = 'rgba(0,212,255,.3)'; ctx.font = '11px Share Tech Mono';
+    ctx.fillText('SIMULATION — no frame data', 12, 22);
+  }
+  drawBoxes(detections);
+}
+
+function drawBoxes(detections) {
+  const W = canvas.width, H = canvas.height;
+  detections.forEach(d => {
+    const [x1n,y1n,x2n,y2n] = d.box;
+    const x1=x1n*W, y1=y1n*H, x2=x2n*W, y2=y2n*H;
+    const bw=x2-x1, bh=y2-y1;
+
+    // Box glow
+    ctx.save();
+    ctx.shadowColor='#00d4ff'; ctx.shadowBlur=14;
+    ctx.strokeStyle='#00d4ff'; ctx.lineWidth=2;
+    ctx.strokeRect(x1,y1,bw,bh);
+    ctx.restore();
+
+    // Subtle fill
+    ctx.fillStyle='rgba(0,212,255,0.06)';
+    ctx.fillRect(x1,y1,bw,bh);
+
+    // Corner accents
+    const cs = Math.min(14, bw*0.18, bh*0.18);
+    ctx.strokeStyle='#00ff88'; ctx.lineWidth=2.5;
+    [[x1,y1,1,1],[x2,y1,-1,1],[x1,y2,1,-1],[x2,y2,-1,-1]].forEach(([cx,cy,dx,dy])=>{
+      ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx+dx*cs,cy); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx,cy+dy*cs); ctx.stroke();
+    });
+
+    // Label — flip below box if too close to top edge
+    const label = `${d.class_name}  ${Math.round(d.score*100)}%`;
+    ctx.font = 'bold 13px Share Tech Mono';
+    const tw = ctx.measureText(label).width;
+    const lx = x1;
+    const ly = y1 > 28 ? y1 - 26 : y2 + 4;
+
+    ctx.fillStyle='rgba(0,10,20,0.85)';
+    ctx.fillRect(lx, ly, tw+14, 22);
+    ctx.strokeStyle='#00d4ff'; ctx.lineWidth=1;
+    ctx.strokeRect(lx, ly, tw+14, 22);
+    ctx.fillStyle='#00d4ff';
+    ctx.fillText(label, lx+7, ly+15);
+  });
+}
+
+// ════════════════════════════════════════════
+// Log
+// ════════════════════════════════════════════
+function addLogDetection(cls, score, box) {
+  const entries = document.getElementById('logE');
+  if (entries.children.length === 1 && entries.firstChild.textContent.includes('Waiting')) entries.innerHTML = '';
+
+  const now = new Date();
+  const t   = now.toTimeString().split(' ')[0] + '.' + String(now.getMilliseconds()).padStart(3,'0');
+  const el  = document.createElement('div');
+  el.className = 'le';
+  el.innerHTML = `
+    <span class="lt">${t}</span>
+    <span class="lcls">${cls}</span>
+    <span class="lsc">${(score*100).toFixed(1)}%</span>
+    <span class="lbox">[${box.map(v=>v.toFixed(3)).join(', ')}]</span>`;
+  entries.insertBefore(el, entries.firstChild);
+  while (entries.children.length > 120) entries.removeChild(entries.lastChild);
+}
+
+function addLog(msg, cls = 'll-info') {
+  const entries = document.getElementById('logE');
+  if (entries.children.length === 1 && entries.firstChild.textContent.includes('Waiting')) entries.innerHTML = '';
+  const now = new Date();
+  const t   = now.toTimeString().split(' ')[0];
+  const el  = document.createElement('div');
+  el.className = 'le';
+  el.innerHTML = `<span class="lt">${t}</span><span class="${cls}" style="flex:1">${msg.replace(/</g,'&lt;')}</span>`;
+  entries.insertBefore(el, entries.firstChild);
+  while (entries.children.length > 120) entries.removeChild(entries.lastChild);
+}
+
+function clearLog() {
+  document.getElementById('logE').innerHTML = '<div style="padding:4px 6px;color:var(--dim)">// Log cleared</div>';
+}
+
+// ════════════════════════════════════════════
+// UI helpers
+// ════════════════════════════════════════════
+function setDot(which, state) {
+  const d = document.getElementById(which === 'model' ? 'dotModel' : 'dotInfer');
+  d.className = 'dot' + (state ? ' ' + state : '');
+}
+
+function setBanner(state, text) {
+  const b = document.getElementById('wsBanner');
+  b.className = 'ws-banner on ' + state;
+  b.textContent = text;
+}
+
+function toast(msg, type = 'info') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = `toast show ${type}`;
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+function setupClock() {
+  setInterval(() => {
+    document.getElementById('clock').textContent = new Date().toTimeString().split(' ')[0];
+  }, 1000);
+}
+
+function setupDragDrop(zoneId, inputId) {
+  const zone  = document.getElementById(zoneId);
+  const input = document.getElementById(inputId);
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('over'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('over'));
+  zone.addEventListener('drop', e => {
+    e.preventDefault(); zone.classList.remove('over');
+    if (e.dataTransfer.files.length) {
+      const dt = new DataTransfer(); dt.items.add(e.dataTransfer.files[0]);
+      input.files = dt.files; input.dispatchEvent(new Event('change'));
+    }
+  });
+}
+
+// Keep WS alive
+setInterval(() => wsend({ type: 'ping' }), 15000);
+
+// React to server model updates
+document.querySelectorAll('select, input[type=range]').forEach(el => {
+  el.addEventListener('change', updateCmd);
+});
+
+init();
+</script>
+</body>
+</html>
