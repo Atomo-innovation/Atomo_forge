@@ -1,20 +1,15 @@
 import LoginScreen from "@/components/onboarding/LoginScreen";
 import { useNavigate } from "react-router-dom";
-import { hasDeviceProfile } from "@/services/deviceProfile";
 
 const Login = ({ onLoginSuccess }: { onLoginSuccess: () => void }) => {
   const navigate = useNavigate();
 
-  // After a successful login, send the user to the device registration page
-  // unless this device has already been registered (in which case go straight
-  // to the dashboard).
+  // Flow is strictly: /login -> /register -> /dashboard.
+  // /register decides what to do (and triggers the App-level "registered"
+  // flag) when the user finishes the form.
   const routeAfterLogin = () => {
     onLoginSuccess();
-    if (hasDeviceProfile()) {
-      navigate("/dashboard");
-    } else {
-      navigate("/register");
-    }
+    navigate("/register");
   };
 
   return (

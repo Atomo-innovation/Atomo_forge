@@ -1,13 +1,21 @@
 import RegistrationScreen from "@/components/onboarding/RegistrationScreen";
 import { useNavigate } from "react-router-dom";
 
-const Register = () => {
+type Props = {
+  onRegistered?: () => void;
+};
+
+const Register = ({ onRegistered }: Props) => {
   const navigate = useNavigate();
 
-  // After a successful registration, jump straight to the dashboard. The
-  // dashboard top bar reads the device profile saved by RegistrationScreen
-  // and displays the device name / organization / serial.
-  return <RegistrationScreen onSuccess={() => navigate("/dashboard")} />;
+  // After a successful registration, mark the app-level "registered this
+  // session" flag (so /dashboard becomes reachable) and jump to it.
+  const handleSuccess = () => {
+    onRegistered?.();
+    navigate("/dashboard");
+  };
+
+  return <RegistrationScreen onSuccess={handleSuccess} />;
 };
 
 export default Register;

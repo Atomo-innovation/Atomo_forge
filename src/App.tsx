@@ -16,16 +16,30 @@ const queryClient = new QueryClient();
 
 const App = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(() => readLoggedIn());
+  // True only after the user has explicitly completed /register in THIS
+  // app session. Resets on full page reload so login -> register always runs.
+  const [didRegisterThisSession, setDidRegisterThisSession] = useState(false);
 
   const handleLoginSuccess = () => {
     setLoggedIn(true);
     setIsLoggedIn(true);
+    setDidRegisterThisSession(false);
   };
 
   const handleOnboardingComplete = () => {
     setLoggedIn(true);
     setIsLoggedIn(true);
   };
+
+  const handleRegistrationComplete = () => {
+    setDidRegisterThisSession(true);
+  };
+
+  // Canonical post-login destination. Order is always:
+  //   1) /login  →  2) /register  →  3) /dashboard
+  // /register is only skipped after the user finished registration in
+  // this app session (clicked Save in RegistrationScreen).
+  const postLoginPath = () => (didRegisterThisSession ? "/dashboard" : "/register");
 
   return (
   <QueryClientProvider client={queryClient}>
@@ -37,19 +51,19 @@ const App = () => {
           <Route
             path="/"
             element={
-              isLoggedIn ? <Navigate to="/dashboard" replace /> : <Navigate to="/login" replace />
+              isLoggedIn ? <Navigate to={postLoginPath()} replace /> : <Navigate to="/login" replace />
             }
           />
           <Route
             path="/login"
             element={
-              isLoggedIn ? <Navigate to="/dashboard" replace /> : <Login onLoginSuccess={handleLoginSuccess} />
+              isLoggedIn ? <Navigate to={postLoginPath()} replace /> : <Login onLoginSuccess={handleLoginSuccess} />
             }
           />
           <Route
             path="/register"
             element={
-              isLoggedIn ? <Register /> : <Navigate to="/login" replace />
+              isLoggedIn ? <Register onRegistered={handleRegistrationComplete} /> : <Navigate to="/login" replace />
             }
           />
           <Route
@@ -61,13 +75,15 @@ const App = () => {
           <Route
             path="/onboarding"
             element={
-              isLoggedIn ? <Navigate to="/dashboard" replace /> : <Onboarding onOnboardingComplete={handleOnboardingComplete} />
+              isLoggedIn ? <Navigate to={postLoginPath()} replace /> : <Onboarding onOnboardingComplete={handleOnboardingComplete} />
             }
           />
           <Route
             path="/dashboard"
             element={
-              isLoggedIn ? <Dashboard /> : <Navigate to="/login" replace />
+              isLoggedIn
+                ? (didRegisterThisSession ? <Dashboard /> : <Navigate to="/register" replace />)
+                : <Navigate to="/login" replace />
             }
           />
           <Route path="*" element={<NotFound />} />

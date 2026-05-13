@@ -13,6 +13,7 @@ const fs = require('fs');
 const http = require('http');
 const multer = require('multer');
 const { defaultPaths, createUniversalState } = require('./universal/universal-backend.cjs');
+const { runMigrations } = require('./scripts/db-migrate.cjs');
 
 const app = express();
 app.use(cors({ origin: true }));
@@ -77,16 +78,53 @@ const PBKDF2_ITERATIONS = 12000;
 const KEY_LEN = 128;
 const HASH_ALGO = 'sha384';
 
+const mysqlHost = process.env.MYSQL_HOST || '127.0.0.1';
+const mysqlPort = parseInt(process.env.MYSQL_PORT || '3306', 10);
+const mysqlConnectTimeout = parseInt(process.env.MYSQL_CONNECT_TIMEOUT_MS || '20000', 10);
+
 const pool = mysql.createPool({
-  host: process.env.MYSQL_HOST || '127.0.0.1',
-  port: parseInt(process.env.MYSQL_PORT || '3306', 10),
+  host: mysqlHost,
+  port: mysqlPort,
   user: process.env.MYSQL_USER || 'atomo',
   password: process.env.MYSQL_PASSWORD || 'atomo@1234',
   database: process.env.MYSQL_DATABASE || 'meshcentral',
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
+  connectTimeout: Number.isFinite(mysqlConnectTimeout) ? mysqlConnectTimeout : 20000,
 });
+
+/** When Forge runs on a different machine than MySQL (e.g. DB on MeshCentral server). */
+function respondMySqlPoolError(res, err, logLabel) {
+  const code = err && err.code;
+  if (code === 'ETIMEDOUT' || code === 'ECONNREFUSED' || code === 'ENOTFOUND') {
+    console.error(logLabel, err);
+    return res.status(503).json({
+      ok: false,
+      error: `Cannot reach MySQL at ${mysqlHost}:${mysqlPort} (${code}).`,
+      hint:
+        'If MySQL on EC2 is bound to 127.0.0.1 only, your laptop cannot use the public IP on 3306. Use an SSH tunnel (npm run mysql:tunnel) and MYSQL_HOST=127.0.0.1 with a forwarded local port, OR run auth-server on the same server. Otherwise: open TCP ' +
+        mysqlPort +
+        ' in the cloud SG + firewall and allow remote mysqld. Test: mysql -h ' +
+        mysqlHost +
+        ' -P ' +
+        mysqlPort +
+        ' -u USER -p',
+      dbTarget: { host: mysqlHost, port: mysqlPort },
+    });
+  }
+  if (code === 'ER_ACCESS_DENIED_ERROR') {
+    console.error(logLabel, err);
+    return res.status(503).json({
+      ok: false,
+      error: 'MySQL rejected the username or password.',
+      hint: 'Set MYSQL_USER / MYSQL_PASSWORD in .env to a MySQL account that can read the meshcentral database (same as MeshCentral settings.mysql if applicable).',
+      dbTarget: { host: mysqlHost, port: mysqlPort },
+    });
+  }
+  console.error(logLabel, err);
+  return res.status(500).json({ ok: false, error: 'Server error' });
+}
 
 function hashPassword(password, salt, callback) {
   crypto.pbkdf2(password, salt, PBKDF2_ITERATIONS, KEY_LEN, HASH_ALGO, (err, key) => {
@@ -131,8 +169,7 @@ app.post('/api/auth/login', async (req, res) => {
       });
     });
   } catch (e) {
-    console.error('Login error:', e);
-    res.status(500).json({ ok: false, error: 'Server error' });
+    respondMySqlPoolError(res, e, 'Login error:');
   }
 });
 
@@ -168,8 +205,7 @@ app.post('/api/devices/register', async (req, res) => {
     );
     return res.json({ ok: true });
   } catch (e) {
-    console.error('Device register error:', e);
-    return res.status(500).json({ ok: false, error: 'Server error' });
+    respondMySqlPoolError(res, e, 'Device register error:');
   }
 });
 
@@ -704,6 +740,42 @@ const PORT = parseInt(process.env.AUTH_PORT || '3003', 10);
 server.listen(PORT, () => {
   console.log('Auth API listening on http://localhost:' + PORT);
   console.log('[universal] embedded backend mounted at /universal (models:', universalModelsDir + ')');
+  console.log(
+    `[mysql] configured ${mysqlHost}:${mysqlPort} user=${process.env.MYSQL_USER || 'atomo'} db=${process.env.MYSQL_DATABASE || 'meshcentral'}`
+  );
+  pool
+    .getConnection()
+    .then(async (c) => {
+      c.release();
+      console.log('[mysql] connectivity check: OK');
+      // Auto-apply schema migrations (idempotent CREATE TABLE IF NOT EXISTS).
+      // Keeps a fresh dev box working without remembering a manual step.
+      try {
+        await runMigrations();
+      } catch (mErr) {
+        console.warn('[mysql] migrations failed:', mErr && (mErr.code || mErr.message));
+      }
+    })
+    .catch((e) => {
+      const code = e && e.code;
+      let extra = '';
+      if (mysqlHost === '127.0.0.1' && mysqlPort !== 3306) {
+        extra =
+          'You are using a non-default port — start the SSH tunnel first:\n  export FORGE_EC2_SSH_KEY="$HOME/Downloads/your-key.pem"\n  npm run mysql:tunnel';
+      } else if (mysqlHost === '127.0.0.1') {
+        extra =
+          'If MySQL is only on EC2, use SSH tunnel (npm run mysql:tunnel) or run this API on the server.';
+      } else {
+        extra =
+          `Test from this PC: nc -vz ${mysqlHost} ${mysqlPort}\n` +
+          'If that fails, fix ON EC2 / AWS (code cannot open the port for you):\n' +
+          `  • Security group: inbound TCP ${mysqlPort} from YOUR laptop public IP (not 0.0.0.0/0 unless you accept the risk)\n` +
+          '  • Host firewall: sudo ufw status — allow 3306 if ufw is active\n' +
+          '  • MySQL: bind-address must allow remote (not 127.0.0.1-only); restart mysql\n' +
+          "  • MySQL: GRANT ... ON meshcentral.* TO 'atomo'@'%' or @'YOUR_IP'; FLUSH PRIVILEGES;";
+      }
+      console.warn(`[mysql] connectivity check FAILED (${code || e.message}).\n${extra}`);
+    });
 });
 
 
