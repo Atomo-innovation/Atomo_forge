@@ -3,8 +3,13 @@ import LoginScreen from "@/components/onboarding/LoginScreen";
 import RegistrationScreen from "@/components/onboarding/RegistrationScreen";
 import SuccessScreen from "@/components/onboarding/SuccessScreen";
 
-const Onboarding = ({ onOnboardingComplete }: { onOnboardingComplete?: () => void }) => {
+const Onboarding = ({
+  onOnboardingComplete,
+}: {
+  onOnboardingComplete?: (meshUsername?: string | null) => void;
+}) => {
   const [step, setStep] = useState<"login" | "register" | "success">("login");
+  const [meshUsername, setMeshUsername] = useState<string | null>(null);
 
   return (
     <div className="min-h-screen bg-background relative overflow-hidden">
@@ -14,13 +19,18 @@ const Onboarding = ({ onOnboardingComplete }: { onOnboardingComplete?: () => voi
       {step === "login" && (
         <LoginScreen
           onGetStarted={() => setStep("register")}
-          onLoginSuccess={() => {
+          onLoginSuccess={(u) => {
+            setMeshUsername(u);
             setStep("register");
           }}
         />
       )}
-      {step === "register" && <RegistrationScreen onSuccess={() => setStep("success")} />}
-      {step === "success" && <SuccessScreen onComplete={onOnboardingComplete} />}
+      {step === "register" && (
+        <RegistrationScreen meshUsername={meshUsername} onSuccess={() => setStep("success")} />
+      )}
+      {step === "success" && (
+        <SuccessScreen meshUsername={meshUsername} onComplete={onOnboardingComplete} />
+      )}
     </div>
   );
 };

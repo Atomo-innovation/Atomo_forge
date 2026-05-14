@@ -94,6 +94,26 @@ const pool = mysql.createPool({
   connectTimeout: Number.isFinite(mysqlConnectTimeout) ? mysqlConnectTimeout : 20000,
 });
 
+/** Cached probe: atomo_registered_devices.mesh_username exists (migration 006). */
+let atomoMeshUsernameColumnCached = null;
+
+async function atomoDevicesHasMeshUsernameColumn() {
+  if (atomoMeshUsernameColumnCached !== null) return atomoMeshUsernameColumnCached;
+  try {
+    const [rows] = await pool.query(
+      `SELECT COUNT(*) AS c FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'atomo_registered_devices'
+         AND COLUMN_NAME = 'mesh_username'`
+    );
+    atomoMeshUsernameColumnCached = Number(rows[0]?.c) > 0;
+  } catch (e) {
+    console.warn('[atomo_registered_devices] mesh_username column probe failed:', e && e.message);
+    atomoMeshUsernameColumnCached = false;
+  }
+  return atomoMeshUsernameColumnCached;
+}
+
 /** When Forge runs on a different machine than MySQL (e.g. DB on MeshCentral server). */
 function respondMySqlPoolError(res, err, logLabel) {
   const code = err && err.code;
@@ -120,6 +140,16 @@ function respondMySqlPoolError(res, err, logLabel) {
       error: 'MySQL rejected the username or password.',
       hint: 'Set MYSQL_USER / MYSQL_PASSWORD in .env to a MySQL account that can read the meshcentral database (same as MeshCentral settings.mysql if applicable).',
       dbTarget: { host: mysqlHost, port: mysqlPort },
+    });
+  }
+  if (code === 'ER_BAD_FIELD_ERROR') {
+    console.error(logLabel, err);
+    return res.status(500).json({
+      ok: false,
+      error: 'Database schema is out of date for this server build.',
+      hint:
+        String(err.sqlMessage || err.message || '') +
+        ' Restart auth-server after applying scripts/sql migrations (especially 006_atomo_registered_devices_mesh_username.sql).',
     });
   }
   console.error(logLabel, err);
@@ -174,13 +204,20 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // POST /api/devices/register
-// body: { serialNumber, deviceName, organizationName, email?, phone?, location?, cloudSync? }
+// body: { serialNumber, meshUsername?, deviceName, organizationName, email (required), phone?, location?, cloudSync? }
+// MySQL: UNIQUE INDEX on LOWER(email) — same email cannot belong to two different serial rows.
 app.post('/api/devices/register', async (req, res) => {
   const body = req.body || {};
   const serialNumber = String(body.serialNumber || '').trim();
+  const meshUsernameRaw =
+    body.meshUsername != null && String(body.meshUsername).trim() !== ''
+      ? String(body.meshUsername).trim().toLowerCase()
+      : null;
   const deviceName = String(body.deviceName || '').trim();
   const organizationName = String(body.organizationName || '').trim();
-  const email = body.email != null && String(body.email).trim() !== '' ? String(body.email).trim() : null;
+  const emailRaw =
+    body.email != null && String(body.email).trim() !== '' ? String(body.email).trim() : null;
+  const email = emailRaw != null ? emailRaw.toLowerCase() : null;
   const phone = body.phone != null && String(body.phone).trim() !== '' ? String(body.phone).trim() : null;
   const location = body.location != null && String(body.location).trim() !== '' ? String(body.location).trim() : null;
   const cloudSync = body.cloudSync === true ? 1 : 0;
@@ -188,24 +225,204 @@ app.post('/api/devices/register', async (req, res) => {
   if (!serialNumber || !deviceName || !organizationName) {
     return res.status(400).json({ ok: false, error: 'Serial number, device name and organization are required' });
   }
+  if (!email) {
+    return res.status(400).json({
+      ok: false,
+      error: 'Email is required. It must be unique per registration in the database.',
+    });
+  }
+
+  const hasMeshCol = await atomoDevicesHasMeshUsernameColumn();
 
   try {
-    await pool.query(
-      `INSERT INTO atomo_registered_devices
-        (serial_number, device_name, organization_name, email, phone, location, cloud_sync)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-        device_name = VALUES(device_name),
-        organization_name = VALUES(organization_name),
-        email = VALUES(email),
-        phone = VALUES(phone),
-        location = VALUES(location),
-        cloud_sync = VALUES(cloud_sync)`,
-      [serialNumber, deviceName, organizationName, email, phone, location, cloudSync]
-    );
+    if (hasMeshCol) {
+      await pool.query(
+        `INSERT INTO atomo_registered_devices
+          (serial_number, mesh_username, device_name, organization_name, email, phone, location, cloud_sync)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+          mesh_username = COALESCE(VALUES(mesh_username), mesh_username),
+          device_name = VALUES(device_name),
+          organization_name = VALUES(organization_name),
+          email = VALUES(email),
+          phone = VALUES(phone),
+          location = VALUES(location),
+          cloud_sync = VALUES(cloud_sync)`,
+        [serialNumber, meshUsernameRaw, deviceName, organizationName, email, phone, location, cloudSync]
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO atomo_registered_devices
+          (serial_number, device_name, organization_name, email, phone, location, cloud_sync)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+          device_name = VALUES(device_name),
+          organization_name = VALUES(organization_name),
+          email = VALUES(email),
+          phone = VALUES(phone),
+          location = VALUES(location),
+          cloud_sync = VALUES(cloud_sync)`,
+        [serialNumber, deviceName, organizationName, email, phone, location, cloudSync]
+      );
+    }
     return res.json({ ok: true });
   } catch (e) {
+    if (e && (e.errno === 1062 || e.code === 'ER_DUP_ENTRY')) {
+      const msg = String(e.sqlMessage || e.message || '');
+      if (/uq_atomo_reg_devices_email_lower|Duplicate.*email/i.test(msg)) {
+        return res.status(409).json({
+          ok: false,
+          error:
+            'This email is already registered to another device. Use a different email or update the existing registration for that serial.',
+        });
+      }
+    }
     respondMySqlPoolError(res, e, 'Device register error:');
+  }
+});
+
+// GET /api/devices/registrations?meshUsername=alice&profileEmail=optional@fallback.com
+// Lists rows tied to this MeshCentral login (and legacy rows with NULL mesh_username matching profileEmail).
+app.get('/api/devices/registrations', async (req, res) => {
+  const meshUser =
+    req.query.meshUsername != null && String(req.query.meshUsername).trim() !== ''
+      ? String(req.query.meshUsername).trim().toLowerCase()
+      : null;
+  if (!meshUser) {
+    return res.status(400).json({ ok: false, error: 'meshUsername query parameter is required' });
+  }
+  const profileEmail =
+    req.query.profileEmail != null && String(req.query.profileEmail).trim() !== ''
+      ? String(req.query.profileEmail).trim().toLowerCase()
+      : null;
+
+  const selectCols = `serial_number AS serialNumber,
+              mesh_username AS meshUsername,
+              device_name AS deviceName,
+              organization_name AS organizationName,
+              email, phone, location,
+              cloud_sync AS cloudSync,
+              created_at AS createdAt,
+              updated_at AS updatedAt`;
+
+  const filterMesh = `(
+      LOWER(TRIM(COALESCE(mesh_username, ''))) = ?
+      OR (
+        mesh_username IS NULL
+        AND ? IS NOT NULL
+        AND LOWER(TRIM(COALESCE(email, ''))) = ?
+      )
+    )`;
+
+  const filterEmailOnly = `LOWER(TRIM(COALESCE(email, ''))) = ?`;
+
+  try {
+    const hasMeshCol = await atomoDevicesHasMeshUsernameColumn();
+
+    let devices;
+    let byEmailRows;
+
+    if (hasMeshCol) {
+      const [d] = await pool.query(
+        `SELECT ${selectCols}
+         FROM atomo_registered_devices
+         WHERE ${filterMesh}
+         ORDER BY updated_at DESC`,
+        [meshUser, profileEmail, profileEmail]
+      );
+      devices = d;
+      const [e] = await pool.query(
+        `SELECT LOWER(TRIM(email)) AS emailKey,
+                MIN(email) AS emailLabel,
+                COUNT(*) AS deviceCount
+         FROM atomo_registered_devices
+         WHERE ${filterMesh}
+           AND email IS NOT NULL
+           AND TRIM(email) <> ''
+         GROUP BY LOWER(TRIM(email))
+         ORDER BY deviceCount DESC, emailKey ASC`,
+        [meshUser, profileEmail, profileEmail]
+      );
+      byEmailRows = e;
+    } else if (profileEmail) {
+      const selectLegacy = `serial_number AS serialNumber,
+              CAST(NULL AS CHAR) AS meshUsername,
+              device_name AS deviceName,
+              organization_name AS organizationName,
+              email, phone, location,
+              cloud_sync AS cloudSync,
+              created_at AS createdAt,
+              updated_at AS updatedAt`;
+      const [d] = await pool.query(
+        `SELECT ${selectLegacy}
+         FROM atomo_registered_devices
+         WHERE ${filterEmailOnly}
+         ORDER BY updated_at DESC`,
+        [profileEmail]
+      );
+      devices = d;
+      const [e] = await pool.query(
+        `SELECT LOWER(TRIM(email)) AS emailKey,
+                MIN(email) AS emailLabel,
+                COUNT(*) AS deviceCount
+         FROM atomo_registered_devices
+         WHERE ${filterEmailOnly}
+           AND email IS NOT NULL
+           AND TRIM(email) <> ''
+         GROUP BY LOWER(TRIM(email))
+         ORDER BY deviceCount DESC, emailKey ASC`,
+        [profileEmail]
+      );
+      byEmailRows = e;
+    } else {
+      devices = [];
+      byEmailRows = [];
+    }
+
+    const byEmail = (byEmailRows || []).map((r) => ({
+      email: r.emailLabel || r.emailKey,
+      deviceCount: Number(r.deviceCount ?? 0),
+    }));
+
+    const payload = {
+      ok: true,
+      meshUsername: meshUser,
+      devices: devices || [],
+      byEmail,
+    };
+
+    if (!hasMeshCol && !profileEmail) {
+      payload.migrationNeeded = true;
+      payload.hint =
+        'Run SQL migrations and restart auth-server (adds mesh_username). Until then, save a device registration with email in this browser so we can match rows by email.';
+    } else if (!hasMeshCol && profileEmail) {
+      payload.schemaNote =
+        'Listing by profile email only until migration 006 adds mesh_username — restart auth-server after migrations.';
+    }
+
+    return res.json(payload);
+  } catch (e) {
+    respondMySqlPoolError(res, e, 'Device registrations list error:');
+  }
+});
+
+// GET /api/devices/registration-summary — confirms auth-server DB target vs Workbench (counts only, no row bodies).
+app.get('/api/devices/registration-summary', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      'SELECT COUNT(*) AS total, MAX(updated_at) AS lastUpdated FROM atomo_registered_devices'
+    );
+    const row = rows && rows[0];
+    return res.json({
+      ok: true,
+      database: process.env.MYSQL_DATABASE || 'meshcentral',
+      table: 'atomo_registered_devices',
+      view: 'v_atomo_device_registrations',
+      rowCount: Number(row?.total ?? 0),
+      lastUpdated: row?.lastUpdated ?? null,
+    });
+  } catch (e) {
+    respondMySqlPoolError(res, e, 'Device registration summary error:');
   }
 });
 

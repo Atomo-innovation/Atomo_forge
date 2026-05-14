@@ -1,9 +1,11 @@
 import { useState, useEffect, useMemo } from "react";
 import { Cpu } from "lucide-react";
+import { authApiUrl } from "@/services/authApiUrl";
 
 interface LoginScreenProps {
   onGetStarted: () => void;
-  onLoginSuccess?: () => void;
+  /** Called with normalized MeshCentral username after successful login. */
+  onLoginSuccess?: (meshUsername: string) => void;
 }
 
 type ApiErrorPayload = {
@@ -69,7 +71,7 @@ const LoginScreen = ({ onGetStarted, onLoginSuccess }: LoginScreenProps) => {
     setError("");
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/login", {
+      const res = await fetch(authApiUrl("/api/auth/login"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username: username.trim(), password }),
@@ -89,7 +91,13 @@ const LoginScreen = ({ onGetStarted, onLoginSuccess }: LoginScreenProps) => {
         setLoading(false);
         return;
       }
-      if (onLoginSuccess) onLoginSuccess();
+      const normalizedUser = username.trim().toLowerCase();
+      if (!normalizedUser) {
+        setError("Enter a username");
+        setLoading(false);
+        return;
+      }
+      if (onLoginSuccess) onLoginSuccess(normalizedUser);
       else onGetStarted();
     } catch {
       setError("Network error. Is the API server running on port 3003?");

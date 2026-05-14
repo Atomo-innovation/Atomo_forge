@@ -1,5 +1,8 @@
 import RegistrationScreen from "@/components/onboarding/RegistrationScreen";
-import { useNavigate } from "react-router-dom";
+import { useAuthUsername } from "@/contexts/AuthUsernameContext";
+import { hasDeviceProfile } from "@/services/deviceProfile";
+import { useEffect, useMemo } from "react";
+import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 
 type Props = {
   onRegistered?: () => void;
@@ -7,15 +10,40 @@ type Props = {
 
 const Register = ({ onRegistered }: Props) => {
   const navigate = useNavigate();
+  const username = useAuthUsername();
+  const [searchParams] = useSearchParams();
+  const additional = useMemo(() => {
+    const v = searchParams.get("additional");
+    return v === "1" || v === "true";
+  }, [searchParams]);
 
-  // After a successful registration, mark the app-level "registered this
-  // session" flag (so /dashboard becomes reachable) and jump to it.
+  useEffect(() => {
+    if (!username) return;
+    if (additional) return;
+    if (!hasDeviceProfile(username)) return;
+    onRegistered?.();
+    navigate("/dashboard", { replace: true });
+  }, [additional, username, navigate, onRegistered]);
+
   const handleSuccess = () => {
     onRegistered?.();
-    navigate("/dashboard");
+    if (additional) {
+      navigate("/dashboard", { replace: true, state: { openSettings: true } });
+    } else {
+      navigate("/dashboard");
+    }
   };
 
-  return <RegistrationScreen onSuccess={handleSuccess} />;
+  if (!username) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return (
+    <RegistrationScreen
+      onSuccess={handleSuccess}
+      registrationPurpose={additional ? "additional" : "initial"}
+    />
+  );
 };
 
 export default Register;

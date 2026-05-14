@@ -15,9 +15,11 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Columns2, GripVertical, Maximize2, Plus, Camera, BarChart3, TrendingUp, Clock, Target } from "lucide-react";
+import { Columns2, GripVertical, Maximize2, Plus, Camera, BarChart3, TrendingUp, Clock, Target, PencilLine, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CAMERA_WORKSPACE_TITLE, type CameraConfig } from "@/pages/Dashboard";
+import { CAMERA_WORKSPACE_TITLE, type CameraConfig, type CameraWorkspaceId } from "@/pages/Dashboard";
+import { AddCameraModal } from "@/components/dashboard/AddCameraModal";
+import { RenameCameraDialog } from "@/components/dashboard/RenameCameraDialog";
 import {
   DETECTION_EVENTS_CHANGED_EVENT,
   listDetectionEvents,
@@ -25,11 +27,24 @@ import {
 } from "@/services/detectionEventsStore";
 import { useModels } from "@/hooks/useModels";
 import { getCameraFingerprint, getOrCreateStableCameraId } from "@/services/cameraIdentity";
+import { useAuthUsername } from "@/contexts/AuthUsernameContext";
+import {
+  DEVICE_PROFILE_CHANGED_EVENT,
+  getDeviceProfile,
+  setDeviceProfile,
+} from "@/services/deviceProfile";
+import { deviceProfileFromRegistrationRow, fetchDeviceRegistrations, type RegistrationRow } from "@/services/deviceRegistrations";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 interface Props {
   cameras: CameraConfig[];
-  onAddCamera: () => void;
+  onAddCamera: (camera: CameraConfig, opts?: { openLive?: boolean }) => void;
+  onUpdateCamera: (cameraId: string, patch: Partial<CameraConfig>) => void;
   onViewCamera: (camera: CameraConfig) => void;
+  onOpenSettings?: () => void;
 }
 
 /** Legacy: array of panel ids only */
@@ -214,10 +229,75 @@ function SortablePanel({
   );
 }
 
-const DashboardHome = ({ cameras, onAddCamera, onViewCamera }: Props) => {
+const DashboardHome = ({ cameras, onAddCamera, onUpdateCamera, onViewCamera, onOpenSettings }: Props) => {
+  const meshUsername = useAuthUsername();
+  const profileEmail = meshUsername ? getDeviceProfile(meshUsername)?.email?.trim().toLowerCase() ?? null : null;
+
+  const [regDevices, setRegDevices] = useState<RegistrationRow[]>([]);
+  const [regLoading, setRegLoading] = useState(false);
+  const [regError, setRegError] = useState<string | null>(null);
+  const [profileEpoch, setProfileEpoch] = useState(0);
+
+  useEffect(() => {
+    const onProfile = () => setProfileEpoch((n) => n + 1);
+    window.addEventListener(DEVICE_PROFILE_CHANGED_EVENT, onProfile);
+    window.addEventListener("storage", onProfile);
+    return () => {
+      window.removeEventListener(DEVICE_PROFILE_CHANGED_EVENT, onProfile);
+      window.removeEventListener("storage", onProfile);
+    };
+  }, []);
+
+  const dashboardSerialActive = useMemo(() => {
+    void profileEpoch;
+    if (!meshUsername) return null;
+    return getDeviceProfile(meshUsername)?.serialNumber?.trim() ?? null;
+  }, [meshUsername, profileEpoch]);
+
+  const loadRegistrationsOverview = useCallback(async () => {
+    if (!meshUsername) {
+      setRegDevices([]);
+      setRegError(null);
+      return;
+    }
+    setRegLoading(true);
+    setRegError(null);
+    try {
+      const result = await fetchDeviceRegistrations(meshUsername, profileEmail);
+      if (!result.ok) {
+        setRegError(result.error);
+        setRegDevices([]);
+        return;
+      }
+      setRegDevices(result.devices);
+    } finally {
+      setRegLoading(false);
+    }
+  }, [meshUsername, profileEmail]);
+
+  useEffect(() => {
+    void loadRegistrationsOverview();
+  }, [loadRegistrationsOverview]);
+
+  const selectRegisteredDevice = useCallback(
+    (d: RegistrationRow) => {
+      if (!meshUsername) return;
+      const sn = d.serialNumber.trim();
+      if (dashboardSerialActive === sn) return;
+      setDeviceProfile(meshUsername, deviceProfileFromRegistrationRow(d));
+      toast.success("Active device updated", {
+        description: `Overview shows “${d.deviceName.trim()}” (${sn}).`,
+      });
+    },
+    [meshUsername, dashboardSerialActive],
+  );
+
   const initial = useMemo(() => loadLayout(), []);
   const [order, setOrder] = useState<PanelId[]>(initial.order);
   const [spans, setSpans] = useState<Record<PanelId, WidthMode>>(initial.spans);
+  const [overviewAddOpen, setOverviewAddOpen] = useState(false);
+  const [overviewWorkspace, setOverviewWorkspace] = useState<CameraWorkspaceId>("cameras");
+  const [renameTarget, setRenameTarget] = useState<CameraConfig | null>(null);
   const [recentEvents, setRecentEvents] = useState<StoredDetectionEvent[]>([]);
   const [chartEvents, setChartEvents] = useState<StoredDetectionEvent[]>([]);
   const [thumbUrls, setThumbUrls] = useState<Record<string, string>>({});
@@ -415,76 +495,98 @@ const DashboardHome = ({ cameras, onAddCamera, onViewCamera }: Props) => {
             subtitle="Camera name, detection workspace, and AI status"
             widthMode={wm}
             onToggleWidth={tw}
-            // actions={
-            //   <button
-            //     type="button"
-            //     onClick={onAddCamera}
-            //     className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-gradient-atomic px-4 py-2.5 text-sm font-medium text-primary-foreground glow-primary-sm transition-transform hover:scale-[1.02]"
-            //   >
-            //     <Plus className="h-4 w-4" /> Add Camera
-            //   </button>
-            // }
           >
-            {cameras.length === 0 ? (
-              <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 py-14 text-center sm:py-16">
-                <Camera className="mb-4 h-16 w-16 text-muted-foreground/30" />
-                <h3 className="text-lg font-medium">No cameras connected</h3>
-                <p className="mt-1 max-w-sm text-sm text-muted-foreground">Add a camera from any detection workspace in the sidebar</p>
-                {/* <button
-                  type="button"
-                  onClick={onAddCamera}
-                  className="mt-6 inline-flex items-center gap-2 rounded-lg bg-gradient-atomic px-6 py-3 font-medium text-primary-foreground glow-primary transition-transform hover:scale-105"
-                >
-                  <Plus className="h-5 w-5" /> Add Camera
-                </button> */}
-              </div>
-            ) : (
-              <div
-                className={`grid grid-cols-1 gap-4 ${
-                  wm === "full"
-                    ? "sm:grid-cols-[repeat(auto-fit,minmax(13rem,1fr))] lg:grid-cols-[repeat(auto-fit,minmax(15rem,1fr))]"
-                    : "sm:grid-cols-[repeat(auto-fit,minmax(16rem,1fr))]"
-                }`}
-              >
-                {cameras.map((cam) => (
-                  <button
-                    key={cam.id}
-                    type="button"
-                    onClick={() => onViewCamera(cam)}
-                    className="group rounded-xl border border-border/40 bg-muted/30 p-4 text-left transition-all hover:border-primary/30 hover:bg-muted/50"
+            <div className="flex flex-col">
+              {cameras.length > 0 ? (
+                <>
+                  <div
+                    className={`grid grid-cols-1 gap-4 ${
+                      wm === "full"
+                        ? "sm:grid-cols-[repeat(auto-fit,minmax(13rem,1fr))] lg:grid-cols-[repeat(auto-fit,minmax(15rem,1fr))]"
+                        : "sm:grid-cols-[repeat(auto-fit,minmax(16rem,1fr))]"
+                    }`}
                   >
-                    <h3 className="font-semibold leading-snug transition-colors group-hover:text-primary">{cam.name}</h3>
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      <span className="font-medium text-foreground/90">Detection: </span>
-                      {cam.detectionWorkspace ? (
-                        <span className="inline-flex max-w-full items-center rounded-md border border-primary/25 bg-primary/8 px-2 py-0.5 font-medium text-primary">
-                          {CAMERA_WORKSPACE_TITLE[cam.detectionWorkspace]}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground" title="Cameras added before workspace labels were saved">
-                          Not set
-                        </span>
-                      )}
-                    </p>
-                    <p className="mt-1.5 text-sm text-muted-foreground">
-                      {cam.inferenceSessionId ? (
-                        <>
-                          <span className="font-medium text-success">AI Running</span>
-                          {cam.model ? (
-                            <>
-                              {" "}
-                              <span className="text-muted-foreground">·</span> <span className="text-foreground">{cam.model}</span>
-                            </>
-                          ) : null}
-                        </>
-                      ) : (
-                        <span>AI Stopped</span>
-                      )}
-                    </p>
+                    {cameras.map((cam) => (
+                      <div
+                        key={cam.id}
+                        className={`flex min-h-[7.5rem] overflow-hidden rounded-xl border border-border/40 bg-muted/30 transition-all hover:border-primary/30 hover:bg-muted/50 ${
+                          wm === "full" ? "min-h-0" : ""
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => onViewCamera(cam)}
+                          className="group min-w-0 flex-1 p-4 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                        >
+                          <h3 className="font-semibold leading-snug transition-colors group-hover:text-primary">{cam.name}</h3>
+                          <p className="mt-2 text-xs text-muted-foreground">
+                            <span className="font-medium text-foreground/90">Detection: </span>
+                            {cam.detectionWorkspace ? (
+                              <span className="inline-flex max-w-full items-center rounded-md border border-primary/25 bg-primary/8 px-2 py-0.5 font-medium text-primary">
+                                {CAMERA_WORKSPACE_TITLE[cam.detectionWorkspace]}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground" title="Cameras added before workspace labels were saved">
+                                Not set
+                              </span>
+                            )}
+                          </p>
+                          <p className="mt-1.5 text-sm text-muted-foreground">
+                            {cam.inferenceSessionId ? (
+                              <>
+                                <span className="font-medium text-success">AI Running</span>
+                                {cam.model ? (
+                                  <>
+                                    {" "}
+                                    <span className="text-muted-foreground">·</span> <span className="text-foreground">{cam.model}</span>
+                                  </>
+                                ) : null}
+                              </>
+                            ) : (
+                              <span>AI Stopped</span>
+                            )}
+                          </p>
+                        </button>
+                        <div className="flex shrink-0 flex-col border-l border-border/50 bg-muted/20">
+                          <button
+                            type="button"
+                            onClick={() => setRenameTarget(cam)}
+                            className="flex flex-1 items-center justify-center px-3 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                            aria-label={`Rename ${cam.name}`}
+                          >
+                            <PencilLine className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-8 flex justify-center">
+                    <button
+                      type="button"
+                      onClick={() => setOverviewAddOpen(true)}
+                      className="inline-flex items-center gap-2 rounded-lg bg-gradient-atomic px-6 py-3 font-medium text-primary-foreground glow-primary transition-transform hover:scale-[1.02]"
+                    >
+                      <Plus className="h-5 w-5" /> Add Camera
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="flex min-h-[14rem] flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 px-4 py-12 text-center sm:min-h-[16rem] sm:py-16">
+                  <Camera className="h-14 w-14 shrink-0 text-muted-foreground/30 sm:h-16 sm:w-16" aria-hidden />
+                  <button
+                    type="button"
+                    onClick={() => setOverviewAddOpen(true)}
+                    className="mt-4 inline-flex items-center gap-2 rounded-lg bg-gradient-atomic px-6 py-3 font-medium text-primary-foreground glow-primary transition-transform hover:scale-[1.02]"
+                  >
+                    <Plus className="h-5 w-5" aria-hidden /> Add Camera
                   </button>
-                ))}
-              </div>
-            )}
+                  <h3 className="mt-8 text-lg font-medium">No cameras connected</h3>
+                  <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+                    Add a camera here or from a detection workspace in the sidebar.
+                  </p>
+                </div>
+              )}
+            </div>
           </SortablePanel>
         );
 
@@ -618,6 +720,95 @@ const DashboardHome = ({ cameras, onAddCamera, onViewCamera }: Props) => {
         </button>
       </header>
 
+      {meshUsername ? (
+        <section
+          className="mb-6 rounded-xl border border-border/70 bg-card/80 p-4 shadow-sm sm:p-5"
+          aria-labelledby="registered-devices-heading"
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <h2 id="registered-devices-heading" className="text-sm font-semibold text-foreground">
+                Registered devices
+              </h2>
+              <p className="mt-1 text-xs text-muted-foreground max-w-xl">
+                Units tied to your Mesh login in MySQL. Select one to update the top bar (name, org, serial). Cameras and events stay on this browser until you manage them per workspace.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="shrink-0 gap-2"
+              disabled={regLoading || !meshUsername}
+              onClick={() => void loadRegistrationsOverview()}
+            >
+              <RefreshCw className={`h-4 w-4 ${regLoading ? "animate-spin" : ""}`} />
+              Refresh list
+            </Button>
+          </div>
+
+          {regError ? (
+            <p className="mt-3 text-sm text-destructive">{regError}</p>
+          ) : null}
+
+          {regLoading && regDevices.length === 0 && !regError ? (
+            <p className="mt-3 text-sm text-muted-foreground">Loading registrations…</p>
+          ) : null}
+
+          {!regLoading && regDevices.length === 0 && !regError ? (
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-muted-foreground">No rows returned for this login yet.</p>
+              {onOpenSettings ? (
+                <Button type="button" variant="secondary" size="sm" onClick={onOpenSettings}>
+                  Open Settings
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+
+          {regDevices.length > 0 ? (
+            <div className="mt-4 flex gap-3 overflow-x-auto pb-1 pt-0.5">
+              {regDevices.map((d) => {
+                const active = dashboardSerialActive === d.serialNumber.trim();
+                return (
+                  <button
+                    key={`${d.serialNumber}-${d.updatedAt ?? ""}`}
+                    type="button"
+                    onClick={() => selectRegisteredDevice(d)}
+                    className={cn(
+                      "min-w-[200px] max-w-[280px] shrink-0 rounded-xl border px-4 py-3 text-left transition-all outline-none",
+                      "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                      active
+                        ? "border-primary bg-primary/10 shadow-sm ring-2 ring-primary/25"
+                        : "border-border/80 bg-muted/25 hover:border-primary/35 hover:bg-muted/40",
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="min-w-0 flex-1 truncate font-medium leading-snug">{d.deviceName}</span>
+                      {active ? (
+                        <Badge variant="secondary" className="shrink-0 font-normal text-[10px]">
+                          Active
+                        </Badge>
+                      ) : (
+                        <span className="shrink-0 text-[10px] text-muted-foreground">Switch</span>
+                      )}
+                    </div>
+                    <p className="mt-1 font-mono text-[11px] text-muted-foreground truncate" title={d.serialNumber}>
+                      {d.serialNumber}
+                    </p>
+                    {d.organizationName.trim() && d.organizationName !== "—" ? (
+                      <p className="mt-1 truncate text-xs text-muted-foreground" title={d.organizationName}>
+                        {d.organizationName}
+                      </p>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={order} strategy={rectSortingStrategy}>
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-stretch lg:gap-6 xl:gap-8">
@@ -632,6 +823,24 @@ const DashboardHome = ({ cameras, onAddCamera, onViewCamera }: Props) => {
           </div>
         </SortableContext>
       </DndContext>
+      <AddCameraModal
+        open={overviewAddOpen}
+        onClose={() => setOverviewAddOpen(false)}
+        workspaceId={overviewWorkspace}
+        workspaceTitle={CAMERA_WORKSPACE_TITLE[overviewWorkspace]}
+        showWorkspacePicker
+        onWorkspaceChange={setOverviewWorkspace}
+        onAddCamera={onAddCamera}
+        onUpdateCamera={onUpdateCamera}
+      />
+      <RenameCameraDialog
+        open={renameTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setRenameTarget(null);
+        }}
+        camera={renameTarget}
+        onSave={(id, name) => onUpdateCamera(id, { name })}
+      />
     </div>
   );
 };

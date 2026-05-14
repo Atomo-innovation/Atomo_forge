@@ -1,19 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { Plus, Usb, Wifi, CircuitBoard, X, Play, Trash2, LayoutGrid, List } from "lucide-react";
+import { Plus, Play, Trash2, LayoutGrid, List, PencilLine } from "lucide-react";
 import { type CameraConfig, type CameraWorkspaceId } from "@/pages/Dashboard";
-import { getCameraFingerprint, getOrCreateStableCameraId } from "@/services/cameraIdentity";
 import { DETECTION_EVENTS_CHANGED_EVENT, listDetectionEvents, type StoredDetectionEvent } from "@/services/detectionEventsStore";
-import { useModels } from "@/hooks/useModels";
-import ModelSelector from "@/components/dashboard/ModelSelector";
 import {
   EXPORT_FOLDER_LINK_CHANGED,
-  EXPORT_SUBDIR,
   clearExportRootDirectoryHandle,
   isFolderDiskExportSupported,
   loadExportRootDirectoryHandle,
   pickAndLinkExportFolder,
 } from "@/services/detectionFolderExport";
+import { AddCameraModal } from "@/components/dashboard/AddCameraModal";
+import { RenameCameraDialog } from "@/components/dashboard/RenameCameraDialog";
 
 interface Props {
   /** Which sidebar detection workspace this screen is for — stored on new cameras. */
@@ -27,9 +24,6 @@ interface Props {
   onOpenLiveView: (camera: CameraConfig) => void;
 }
 
-type ModalStep = "closed" | "type" | "config";
-type CameraType = "usb" | "rtsp" | "csi";
-
 const CamerasView = ({
   workspaceId,
   workspaceTitle = "Cameras",
@@ -39,18 +33,8 @@ const CamerasView = ({
   onDeleteCamera,
   onOpenLiveView,
 }: Props) => {
-  const [modalStep, setModalStep] = useState<ModalStep>("closed");
-  const [selectedType, setSelectedType] = useState<CameraType | null>(null);
-  const [cameraName, setCameraName] = useState("");
-  const [resolution, setResolution] = useState("1920x1080");
-  const [fps, setFps] = useState(30);
-  const [rtspUrl, setRtspUrl] = useState("");
-  const { models } = useModels();
-  const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
-  const [modelPickerOpen, setModelPickerOpen] = useState(false);
-  const [autoStart, setAutoStart] = useState(true);
-  const [startBusy, setStartBusy] = useState(false);
-  const [startErr, setStartErr] = useState<string | null>(null);
+  const [addModalOpen, setAddModalOpen] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<CameraConfig | null>(null);
   const [events, setEvents] = useState<StoredDetectionEvent[]>([]);
   const [recentThumbUrls, setRecentThumbUrls] = useState<Record<string, string>>({});
   const recentThumbUrlsRef = useRef<Record<string, string>>({});
@@ -59,95 +43,6 @@ const CamerasView = ({
   const [folderMsg, setFolderMsg] = useState<string | null>(null);
   const [detectionPage, setDetectionPage] = useState(1);
   const fsSupported = isFolderDiskExportSupported();
-
-  const resetForm = () => {
-    setCameraName("");
-    setResolution("1920x1080");
-    setFps(30);
-    setRtspUrl("");
-    setSelectedModelId(null);
-    setModelPickerOpen(false);
-    setAutoStart(true);
-    setStartBusy(false);
-    setStartErr(null);
-  };
-
-  const cameraTypes = [
-    { id: "usb" as CameraType, icon: Usb, title: "USB Camera", desc: "Plug & Play local camera" },
-    { id: "rtsp" as CameraType, icon: Wifi, title: "RTSP Camera", desc: "IP Camera over LAN / WAN" },
-    { id: "csi" as CameraType, icon: CircuitBoard, title: "CSI Camera", desc: "Direct board-level camera" },
-  ];
-
-  const canSubmit = useMemo(() => {
-    if (modalStep !== "config") return false;
-    if (!selectedType) return false;
-    if (!cameraName.trim()) return false;
-    if (selectedType === "rtsp" && !rtspUrl.trim()) return false;
-    if (autoStart && !selectedModelId) return false;
-    if (startBusy) return false;
-    return true;
-  }, [autoStart, cameraName, modalStep, rtspUrl, selectedModelId, selectedType, startBusy]);
-
-  const shouldShowModelPicker = autoStart && (modelPickerOpen || Boolean(selectedModelId));
-
-  const createCamera = () => {
-    if (!selectedType) return null;
-    const rtsp = selectedType === "rtsp" ? rtspUrl.trim() : undefined;
-    const dev = selectedType === "usb" ? "usb:0" : selectedType === "csi" ? "csi:0" : undefined;
-    const fp = getCameraFingerprint({ type: selectedType, rtspUrl: rtsp, device: dev });
-    const m = selectedModelId ? models.find((x) => x.id === selectedModelId) : undefined;
-    const cam: CameraConfig = {
-      // Same physical camera can be used in multiple detection workspaces; keep IDs separate per workspace.
-      id: fp ? getOrCreateStableCameraId(`${workspaceId}::${fp}`) : String(Date.now()),
-      name: cameraName.trim(),
-      type: selectedType,
-      status: "online",
-      resolution,
-      fps,
-      detectionWorkspace: workspaceId,
-      rtspUrl: rtsp,
-      device: dev,
-      cpuUsage: 0,
-      npuUsage: 0,
-      model: m?.name,
-      inferenceModelId: m?.id,
-    };
-    return cam;
-  };
-
-  const startInferenceForCamera = async (cam: CameraConfig) => {
-    const inputType = cam.type === "rtsp" ? "rtsp" : "webcam";
-    const inputValue =
-      inputType === "rtsp"
-        ? cam.rtspUrl?.trim()
-        : (cam.device ?? (cam.type === "csi" ? "csi:0" : "usb:0"));
-    if (!inputValue) throw new Error("Camera input missing (RTSP URL / device)");
-    if (!cam.model) throw new Error("Select a model first");
-
-    const res = await fetch("/universal/api/inference/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        modelName: cam.model,
-        inputType,
-        inputValue,
-        objThresh: 0.25,
-        nmsThresh: 0.45,
-        logLevel: 0,
-        // Lower JPEG quality reduces CPU (encode/decode) and bandwidth.
-        jpegQuality: 60,
-      }),
-    });
-    if (!res.ok) throw new Error(`Inference start failed (${res.status})`);
-    const data = (await res.json()) as { sessionId?: string; error?: string };
-    if (!data.sessionId) throw new Error(data.error || "Inference start missing sessionId");
-    onUpdateCamera(cam.id, {
-      inferenceSessionId: data.sessionId,
-      inferenceModelId: cam.inferenceModelId,
-      inferenceStartedAt: Date.now(),
-      model: cam.model,
-    });
-  };
 
   useEffect(() => {
     const reload = () => void listDetectionEvents().then(setEvents).catch(() => setEvents([]));
@@ -248,12 +143,6 @@ const CamerasView = ({
     };
   }, []);
 
-  const closeModal = () => {
-    setModalStep("closed");
-    setSelectedType(null);
-    resetForm();
-  };
-
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
@@ -262,10 +151,8 @@ const CamerasView = ({
           <p className="text-muted-foreground">Manage connected cameras for this workspace</p>
         </div>
         <button
-          onClick={() => {
-            resetForm();
-            setModalStep("type");
-          }}
+          type="button"
+          onClick={() => setAddModalOpen(true)}
           className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-atomic text-primary-foreground text-sm font-medium glow-primary-sm hover:scale-[1.02] transition-all"
         >
           <Plus className="w-4 h-4" /> Add Camera
@@ -314,6 +201,7 @@ const CamerasView = ({
               </div>
               <div className="flex gap-2 shrink-0">
                 <button
+                  type="button"
                   onClick={() => onOpenLiveView(cam)}
                   disabled={cam.status === "offline"}
                   className="px-3 py-2 rounded-lg bg-primary/10 text-primary text-sm font-medium hover:bg-primary/20 transition-colors disabled:opacity-40"
@@ -321,6 +209,15 @@ const CamerasView = ({
                   <Play className="w-4 h-4" />
                 </button>
                 <button
+                  type="button"
+                  onClick={() => setRenameTarget(cam)}
+                  className="rounded-lg border border-border bg-background px-3 py-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  aria-label={`Rename ${cam.name}`}
+                >
+                  <PencilLine className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
                   onClick={() => {
                     const ok = window.confirm(`Delete camera "${cam.name}"?`);
                     if (!ok) return;
@@ -520,385 +417,22 @@ const CamerasView = ({
         )}
       </section>
 
-      {/* Add Camera Modal */}
-      {modalStep !== "closed" && typeof document !== "undefined" && createPortal((
-        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm animate-fade-in grid place-items-center p-4">
-          <div className="w-full max-w-lg glass rounded-2xl animate-scale-in relative max-h-[calc(100vh-2rem)] overflow-hidden">
-            <button onClick={closeModal} className="absolute top-4 right-4 p-2 rounded-lg hover:bg-muted transition-colors">
-              <X className="w-5 h-5 text-muted-foreground" />
-            </button>
-
-            <div
-              className={`p-8 overflow-y-auto no-scrollbar max-h-[calc(100vh-2rem)] ${
-                modalStep === "type" ? "flex flex-col justify-center min-h-[420px]" : ""
-              }`}
-            >
-
-            {modalStep === "type" && (
-              <>
-                <p className="text-sm font-semibold text-primary mb-1">{workspaceTitle}</p>
-                <h2 className="text-2xl font-bold mb-2">Add New Camera</h2>
-                <p className="text-muted-foreground mb-6">Select camera connection type</p>
-                <div className="space-y-3">
-                  {cameraTypes.map((type) => (
-                    <button
-                      key={type.id}
-                      onClick={() => { setSelectedType(type.id); setModalStep("config"); }}
-                      className="w-full flex items-center gap-4 p-4 rounded-xl bg-muted/50 border border-border hover:border-primary/50 hover:bg-muted transition-all text-left group"
-                    >
-                      <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
-                        <type.icon className="w-6 h-6 text-primary" />
-                      </div>
-                      <div>
-                        <h3 className="font-semibold">{type.title}</h3>
-                        <p className="text-sm text-muted-foreground">{type.desc}</p>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-
-            {modalStep === "config" && selectedType === "usb" && (
-              <>
-                <p className="text-sm font-semibold text-primary mb-2">{workspaceTitle}</p>
-                <h2 className="text-2xl font-bold mb-6">USB Camera Setup</h2>
-                <div className="space-y-4">
-                  <div className="p-4 rounded-xl bg-success/10 border border-success/20">
-                    <p className="text-sm text-success font-medium">✓ Device detected: USB Camera 0</p>
-                  </div>
-                  {startErr && (
-                    <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-xs text-destructive">
-                      {startErr}
-                    </div>
-                  )}
-                  <div>
-                    <label className="block text-sm font-medium text-secondary-foreground mb-2">Camera Name</label>
-                    <input
-                      value={cameraName}
-                      onChange={(e) => setCameraName(e.target.value)}
-                      type="text"
-                      placeholder="e.g., Lobby Camera"
-                      className="w-full px-4 py-3 rounded-lg bg-muted border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-secondary-foreground mb-2">Resolution</label>
-                      <select
-                        value={resolution}
-                        onChange={(e) => setResolution(e.target.value)}
-                        className="w-full px-4 py-3 rounded-lg bg-muted border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                      >
-                        <option>1920x1080</option>
-                        <option>1280x720</option>
-                        <option>640x480</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-secondary-foreground mb-2">FPS</label>
-                      <select
-                        value={String(fps)}
-                        onChange={(e) => setFps(parseInt(e.target.value, 10))}
-                        className="w-full px-4 py-3 rounded-lg bg-muted border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                      >
-                        <option value="30">30</option>
-                        <option value="25">25</option>
-                        <option value="15">15</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="flex items-center gap-2 text-sm font-medium">
-                      <input
-                        type="checkbox"
-                        checked={autoStart}
-                        onChange={(e) => setAutoStart(e.target.checked)}
-                      />
-                      Auto-start AI processing (recommended)
-                    </label>
-                    {autoStart ? (
-                      <div className="text-xs text-muted-foreground">
-                        Select a model now. Events will start recording automatically when detections happen.
-                      </div>
-                    ) : (
-                      <div className="text-xs text-muted-foreground">
-                        You can start AI processing later from Live View.
-                      </div>
-                    )}
-                  </div>
-                  {autoStart ? (
-                    shouldShowModelPicker ? (
-                      <ModelSelector selected={selectedModelId} onSelect={setSelectedModelId} models={models} />
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setModelPickerOpen(true)}
-                        className="w-full rounded-lg border border-border bg-background px-4 py-3 text-sm font-medium text-foreground hover:bg-muted transition-colors"
-                      >
-                        Select AI Model
-                      </button>
-                    )
-                  ) : null}
-                  <button
-                    onClick={() => {
-                      const cam = createCamera();
-                      if (!cam) return;
-                      setStartErr(null);
-                      onAddCamera(cam, { openLive: false });
-                      if (!autoStart) {
-                        closeModal();
-                        return;
-                      }
-                      setStartBusy(true);
-                      void startInferenceForCamera(cam)
-                        .then(() => closeModal())
-                        .catch((e) => {
-                          const msg = e instanceof Error ? e.message : "Failed to start processing";
-                          setStartErr(msg);
-                        })
-                        .finally(() => setStartBusy(false));
-                    }}
-                    disabled={!canSubmit}
-                    className={`w-full py-3 rounded-lg font-semibold glow-primary-sm transition-all ${
-                      canSubmit
-                        ? "bg-gradient-atomic text-primary-foreground hover:scale-[1.01]"
-                        : "bg-muted text-muted-foreground cursor-not-allowed"
-                    }`}
-                  >
-                    {autoStart ? (startBusy ? "Starting AI Processing…" : "Add Camera & Start AI") : "Add Camera"}
-                  </button>
-                </div>
-              </>
-            )}
-
-            {modalStep === "config" && selectedType === "rtsp" && (
-              <>
-                <p className="text-sm font-semibold text-primary mb-2">{workspaceTitle}</p>
-                <h2 className="text-2xl font-bold mb-6">RTSP Camera Setup</h2>
-                <div className="space-y-4">
-                  {startErr && (
-                    <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-xs text-destructive">
-                      {startErr}
-                    </div>
-                  )}
-                  <div>
-                    <label className="block text-sm font-medium text-secondary-foreground mb-2">Camera Name</label>
-                    <input
-                      value={cameraName}
-                      onChange={(e) => setCameraName(e.target.value)}
-                      type="text"
-                      placeholder="e.g., Parking Camera"
-                      className="w-full px-4 py-3 rounded-lg bg-muted border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-secondary-foreground mb-2">RTSP URL</label>
-                    <input
-                      value={rtspUrl}
-                      onChange={(e) => setRtspUrl(e.target.value)}
-                      type="text"
-                      placeholder="rtsp://192.168.1.100:554/stream"
-                      className="w-full px-4 py-3 rounded-lg bg-muted border border-border text-foreground font-mono text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-secondary-foreground mb-2">Resolution</label>
-                      <select
-                        value={resolution}
-                        onChange={(e) => setResolution(e.target.value)}
-                        className="w-full px-4 py-3 rounded-lg bg-muted border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                      >
-                        <option>1920x1080</option>
-                        <option>1280x720</option>
-                        <option>640x480</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-secondary-foreground mb-2">FPS</label>
-                      <select
-                        value={String(fps)}
-                        onChange={(e) => setFps(parseInt(e.target.value, 10))}
-                        className="w-full px-4 py-3 rounded-lg bg-muted border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                      >
-                        <option value="30">30</option>
-                        <option value="25">25</option>
-                        <option value="15">15</option>
-                      </select>
-                    </div>
-                  </div>
-                  <button className="w-full py-3 rounded-lg border border-border text-sm font-medium text-secondary-foreground hover:bg-muted transition-colors">
-                    Test Stream Connection
-                  </button>
-                  <div className="space-y-2">
-                    <label className="flex items-center gap-2 text-sm font-medium">
-                      <input type="checkbox" checked={autoStart} onChange={(e) => setAutoStart(e.target.checked)} />
-                      Auto-start AI processing (recommended)
-                    </label>
-                    {autoStart ? (
-                      <div className="text-xs text-muted-foreground">
-                        Select a model now. Events will start recording automatically when detections happen.
-                      </div>
-                    ) : (
-                      <div className="text-xs text-muted-foreground">You can start AI processing later from Live View.</div>
-                    )}
-                  </div>
-                  {autoStart ? (
-                    shouldShowModelPicker ? (
-                      <ModelSelector selected={selectedModelId} onSelect={setSelectedModelId} models={models} />
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setModelPickerOpen(true)}
-                        className="w-full rounded-lg border border-border bg-background px-4 py-3 text-sm font-medium text-foreground hover:bg-muted transition-colors"
-                      >
-                        Select AI Model
-                      </button>
-                    )
-                  ) : null}
-                  <button
-                    onClick={() => {
-                      const cam = createCamera();
-                      if (!cam) return;
-                      setStartErr(null);
-                      onAddCamera(cam, { openLive: false });
-                      if (!autoStart) {
-                        closeModal();
-                        return;
-                      }
-                      setStartBusy(true);
-                      void startInferenceForCamera(cam)
-                        .then(() => closeModal())
-                        .catch((e) => {
-                          const msg = e instanceof Error ? e.message : "Failed to start processing";
-                          setStartErr(msg);
-                        })
-                        .finally(() => setStartBusy(false));
-                    }}
-                    disabled={!canSubmit}
-                    className={`w-full py-3 rounded-lg font-semibold glow-primary-sm transition-all ${
-                      canSubmit
-                        ? "bg-gradient-atomic text-primary-foreground hover:scale-[1.01]"
-                        : "bg-muted text-muted-foreground cursor-not-allowed"
-                    }`}
-                  >
-                    {autoStart ? (startBusy ? "Starting AI Processing…" : "Add Camera & Start AI") : "Add Camera"}
-                  </button>
-                </div>
-              </>
-            )}
-
-            {modalStep === "config" && selectedType === "csi" && (
-              <>
-                <p className="text-sm font-semibold text-primary mb-2">{workspaceTitle}</p>
-                <h2 className="text-2xl font-bold mb-6">CSI Camera Setup</h2>
-                <div className="space-y-4">
-                  <div className="p-4 rounded-xl bg-primary/10 border border-primary/20">
-                    <p className="text-sm text-primary font-medium">🔍 Scanning CSI bus...</p>
-                  </div>
-                  {startErr && (
-                    <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-xs text-destructive">
-                      {startErr}
-                    </div>
-                  )}
-                  <div>
-                    <label className="block text-sm font-medium text-secondary-foreground mb-2">Camera Name</label>
-                    <input
-                      value={cameraName}
-                      onChange={(e) => setCameraName(e.target.value)}
-                      type="text"
-                      placeholder="e.g., Board Camera"
-                      className="w-full px-4 py-3 rounded-lg bg-muted border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-secondary-foreground mb-2">Resolution</label>
-                      <select
-                        value={resolution}
-                        onChange={(e) => setResolution(e.target.value)}
-                        className="w-full px-4 py-3 rounded-lg bg-muted border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                      >
-                        <option>1920x1080</option>
-                        <option>1280x720</option>
-                        <option>640x480</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-secondary-foreground mb-2">FPS</label>
-                      <select
-                        value={String(fps)}
-                        onChange={(e) => setFps(parseInt(e.target.value, 10))}
-                        className="w-full px-4 py-3 rounded-lg bg-muted border border-border text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                      >
-                        <option value="30">30</option>
-                        <option value="25">25</option>
-                        <option value="15">15</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="flex items-center gap-2 text-sm font-medium">
-                      <input type="checkbox" checked={autoStart} onChange={(e) => setAutoStart(e.target.checked)} />
-                      Auto-start AI processing (recommended)
-                    </label>
-                    {autoStart ? (
-                      <div className="text-xs text-muted-foreground">
-                        Select a model now. Events will start recording automatically when detections happen.
-                      </div>
-                    ) : (
-                      <div className="text-xs text-muted-foreground">You can start AI processing later from Live View.</div>
-                    )}
-                  </div>
-                  {autoStart ? (
-                    shouldShowModelPicker ? (
-                      <ModelSelector selected={selectedModelId} onSelect={setSelectedModelId} models={models} />
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setModelPickerOpen(true)}
-                        className="w-full rounded-lg border border-border bg-background px-4 py-3 text-sm font-medium text-foreground hover:bg-muted transition-colors"
-                      >
-                        Select AI Model
-                      </button>
-                    )
-                  ) : null}
-                  <button
-                    onClick={() => {
-                      const cam = createCamera();
-                      if (!cam) return;
-                      setStartErr(null);
-                      onAddCamera(cam, { openLive: false });
-                      if (!autoStart) {
-                        closeModal();
-                        return;
-                      }
-                      setStartBusy(true);
-                      void startInferenceForCamera(cam)
-                        .then(() => closeModal())
-                        .catch((e) => {
-                          const msg = e instanceof Error ? e.message : "Failed to start processing";
-                          setStartErr(msg);
-                        })
-                        .finally(() => setStartBusy(false));
-                    }}
-                    disabled={!canSubmit}
-                    className={`w-full py-3 rounded-lg font-semibold glow-primary-sm transition-all ${
-                      canSubmit
-                        ? "bg-gradient-atomic text-primary-foreground hover:scale-[1.01]"
-                        : "bg-muted text-muted-foreground cursor-not-allowed"
-                    }`}
-                  >
-                    {autoStart ? (startBusy ? "Starting AI Processing…" : "Add Camera & Start AI") : "Add Camera"}
-                  </button>
-                </div>
-              </>
-            )}
-            </div>
-          </div>
-        </div>
-      ), document.body)}
+      <AddCameraModal
+        open={addModalOpen}
+        onClose={() => setAddModalOpen(false)}
+        workspaceId={workspaceId}
+        workspaceTitle={workspaceTitle}
+        onAddCamera={onAddCamera}
+        onUpdateCamera={onUpdateCamera}
+      />
+      <RenameCameraDialog
+        open={renameTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setRenameTarget(null);
+        }}
+        camera={renameTarget}
+        onSave={(id, name) => onUpdateCamera(id, { name })}
+      />
     </div>
   );
 };

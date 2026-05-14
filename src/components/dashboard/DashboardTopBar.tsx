@@ -6,6 +6,7 @@ import {
   getDeviceProfile,
   type DeviceProfile,
 } from "@/services/deviceProfile";
+import { useAuthUsername } from "@/contexts/AuthUsernameContext";
 
 interface Props {
   onToggleSidebar: () => void;
@@ -20,13 +21,15 @@ const StatusPill = ({ icon: Icon, label, value, color }: { icon: React.ElementTy
 );
 
 const DashboardTopBar = ({ onToggleSidebar }: Props) => {
+  const sessionUser = useAuthUsername();
   const [mode, setMode] = useState<ThemeMode>("dark");
   const [profile, setProfile] = useState<DeviceProfile | null>(null);
 
   useEffect(() => setMode(getThemeMode()), []);
 
   useEffect(() => {
-    const refresh = () => setProfile(getDeviceProfile());
+    const refresh = () =>
+      setProfile(getDeviceProfile(sessionUser ?? undefined));
     refresh();
     window.addEventListener(DEVICE_PROFILE_CHANGED_EVENT, refresh);
     window.addEventListener("storage", refresh);
@@ -34,7 +37,7 @@ const DashboardTopBar = ({ onToggleSidebar }: Props) => {
       window.removeEventListener(DEVICE_PROFILE_CHANGED_EVENT, refresh);
       window.removeEventListener("storage", refresh);
     };
-  }, []);
+  }, [sessionUser]);
 
   const toggle = () => {
     const next: ThemeMode = mode === "dark" ? "light" : "dark";
@@ -63,6 +66,14 @@ const DashboardTopBar = ({ onToggleSidebar }: Props) => {
             <span className="text-sm font-semibold tracking-tight truncate" title={deviceName}>
               {deviceName}
             </span>
+            {sessionUser ? (
+              <span
+                className="text-[10px] text-muted-foreground truncate -mt-0.5"
+                title={`Signed in as ${sessionUser}`}
+              >
+                @{sessionUser}
+              </span>
+            ) : null}
             <span className="font-mono text-[11px] text-muted-foreground truncate" title={orgName ? `${orgName} • ${serial}` : serial}>
               {orgName ? `${orgName} • ` : ""}
               {serial}

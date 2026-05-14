@@ -1,7 +1,13 @@
 import { useNavigate } from "react-router-dom";
 import { CheckCircle2 } from "lucide-react";
 
-const SuccessScreen = ({ onComplete }: { onComplete?: () => void }) => {
+const SuccessScreen = ({
+  onComplete,
+  meshUsername,
+}: {
+  onComplete?: (meshUsername?: string | null) => void;
+  meshUsername?: string | null;
+}) => {
   const navigate = useNavigate();
 
   return (
@@ -21,7 +27,7 @@ const SuccessScreen = ({ onComplete }: { onComplete?: () => void }) => {
 
       <button
         onClick={() => {
-          if (onComplete) onComplete();
+          if (onComplete) onComplete(meshUsername);
           navigate("/dashboard");
         }}
         className="px-8 py-3.5 rounded-lg bg-gradient-atomic font-semibold text-primary-foreground glow-primary-sm transition-all duration-300 hover:scale-105 opacity-0 animate-fade-in-up"

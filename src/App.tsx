@@ -11,35 +11,51 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import OnboardingSuccess from "./pages/OnboardingSuccess";
 import { readLoggedIn, setLoggedIn } from "@/services/authSession";
+import { hasDeviceProfile } from "@/services/deviceProfile";
+import { AuthUsernameProvider } from "@/contexts/AuthUsernameContext";
 
 const queryClient = new QueryClient();
 
 const App = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(() => readLoggedIn());
-  // True only after the user has explicitly completed /register in THIS
-  // app session. Resets on full page reload so login -> register always runs.
-  const [didRegisterThisSession, setDidRegisterThisSession] = useState(false);
+  const [loggedInUsername, setLoggedInUsername] = useState<string | null>(null);
+  // True when device registration exists for the current user (or legacy onboarding profile).
+  const [registrationGateOpen, setRegistrationGateOpen] = useState(false);
 
-  const handleLoginSuccess = () => {
+  const handleLoginSuccess = (username: string) => {
+    const u = username.trim().toLowerCase();
+    setLoggedInUsername(u);
     setLoggedIn(true);
     setIsLoggedIn(true);
-    setDidRegisterThisSession(false);
+    setRegistrationGateOpen(hasDeviceProfile(u));
   };
 
-  const handleOnboardingComplete = () => {
+  const handleOnboardingComplete = (completedMeshUsername?: string | null) => {
     setLoggedIn(true);
     setIsLoggedIn(true);
+    const u =
+      completedMeshUsername != null && String(completedMeshUsername).trim() !== ""
+        ? String(completedMeshUsername).trim().toLowerCase()
+        : null;
+    if (u) {
+      setLoggedInUsername(u);
+    }
+    setRegistrationGateOpen(hasDeviceProfile(u));
   };
 
   const handleRegistrationComplete = () => {
-    setDidRegisterThisSession(true);
+    setRegistrationGateOpen(true);
   };
 
-  // Canonical post-login destination. Order is always:
-  //   1) /login  →  2) /register  →  3) /dashboard
-  // /register is only skipped after the user finished registration in
-  // this app session (clicked Save in RegistrationScreen).
-  const postLoginPath = () => (didRegisterThisSession ? "/dashboard" : "/register");
+  const handleLogout = () => {
+    setLoggedInUsername(null);
+    setLoggedIn(false);
+    setIsLoggedIn(false);
+  };
+
+  // Canonical post-login destination: /register only until device registration
+  // has succeeded at least once (cached profile or completed this session).
+  const postLoginPath = () => (registrationGateOpen ? "/dashboard" : "/register");
 
   return (
   <QueryClientProvider client={queryClient}>
@@ -47,6 +63,7 @@ const App = () => {
       <Toaster />
       <Sonner />
       <BrowserRouter>
+        <AuthUsernameProvider username={loggedInUsername}>
         <Routes>
           <Route
             path="/"
@@ -82,12 +99,13 @@ const App = () => {
             path="/dashboard"
             element={
               isLoggedIn
-                ? (didRegisterThisSession ? <Dashboard /> : <Navigate to="/register" replace />)
+                ? (registrationGateOpen ? <Dashboard onLogout={handleLogout} /> : <Navigate to="/register" replace />)
                 : <Navigate to="/login" replace />
             }
           />
           <Route path="*" element={<NotFound />} />
         </Routes>
+        </AuthUsernameProvider>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>

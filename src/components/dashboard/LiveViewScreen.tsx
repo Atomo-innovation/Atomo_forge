@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Camera, Square, ImageIcon, Circle, Play, Pause, Zap } from "lucide-react";
+import { ArrowLeft, Camera, Square, ImageIcon, Circle, Play, Pause, Zap, PencilLine } from "lucide-react";
 import type { CameraConfig } from "@/pages/Dashboard";
 import { useModels } from "@/hooks/useModels";
+import { Button } from "@/components/ui/button";
 import ModelSelector from "./ModelSelector";
 import LiveStats from "./LiveStats";
+import { RenameCameraDialog } from "@/components/dashboard/RenameCameraDialog";
 import { subscribeUniversalSession } from "@/services/universalSessionWs";
 
 interface Props {
@@ -380,6 +382,7 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
     setRunStatus(null);
     setSessionId(camera?.inferenceSessionId ?? null);
     setProcessing(Boolean(camera?.inferenceSessionId));
+    setRenameOpen(false);
     stopWs();
     stopWebcam();
     pendingFrameRef.current = null;
@@ -426,19 +429,35 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center gap-3">
-        <button onClick={onBack} className="p-2 rounded-lg hover:bg-muted transition-colors">
-          <ArrowLeft className="w-5 h-5" />
+      <div className="flex items-start gap-3 sm:items-center">
+        <button type="button" onClick={onBack} className="mt-0.5 shrink-0 rounded-lg p-2 transition-colors hover:bg-muted sm:mt-0">
+          <ArrowLeft className="h-5 w-5" />
         </button>
-        <div>
-          <h1 className="text-2xl font-bold">{camera?.name || "Live View"}</h1>
-          <p className="text-sm text-muted-foreground">
-            {camera?.type.toUpperCase()} • {camera?.resolution} @ {camera?.fps}fps
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-2xl font-bold tracking-tight">{camera?.name || "Live View"}</h1>
+            {camera ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1.5 px-2.5 text-xs font-medium"
+                onClick={() => setRenameOpen(true)}
+              >
+                <PencilLine className="h-3.5 w-3.5" aria-hidden />
+                Rename
+              </Button>
+            ) : null}
+          </div>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            {camera
+              ? `${camera.type.toUpperCase()} • ${camera.resolution} @ ${camera.fps}fps`
+              : "Choose a camera from the dashboard to begin."}
           </p>
         </div>
-        <div className="ml-auto flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-success animate-pulse" />
-          <span className="text-sm text-success font-medium">LIVE</span>
+        <div className="ml-auto flex shrink-0 items-center gap-2 self-start sm:self-center">
+          <div className="h-2 w-2 animate-pulse rounded-full bg-success" />
+          <span className="text-sm font-medium text-success">LIVE</span>
         </div>
       </div>
 
@@ -533,6 +552,13 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
           {processing && camera?.id ? <LiveStats connection={camera?.type.toUpperCase() || "—"} cameraId={camera.id} /> : null}
         </div>
       </div>
+
+      <RenameCameraDialog
+        open={renameOpen}
+        onOpenChange={setRenameOpen}
+        camera={camera}
+        onSave={(id, name) => onUpdateCamera(id, { name })}
+      />
     </div>
   );
 };

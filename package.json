@@ -4,9 +4,11 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k -n tunnel,api,web -c yellow,cyan,magenta \"bash scripts/mysql-tunnel-to-ec2.sh\" \"node auth-server.cjs\" \"vite\"",
+    "postinstall": "node scripts/install-pdeu-digital-twin.cjs",
+    "dev": "concurrently -k -n tunnel,api,twin,web -c yellow,cyan,green,magenta \"bash scripts/mysql-tunnel-to-ec2.sh\" \"node auth-server.cjs\" \"bash scripts/start-pdeu-digital-twin.sh\" \"vite\"",
     "mysql:tunnel": "bash scripts/mysql-tunnel-to-ec2.sh",
     "migrate": "node scripts/db-migrate.cjs",
+    "twin:install": "node scripts/install-pdeu-digital-twin.cjs",
     "lan:setup": "sudo bash scripts/setup-mdns-electron-local.sh",
     "meshcentral:sync-password": "node scripts/meshcentral-sync-password.cjs",
     "build": "vite build",

@@ -1,8 +1,9 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import DashboardSidebar from "@/components/dashboard/DashboardSidebar";
 import DashboardTopBar from "@/components/dashboard/DashboardTopBar";
 import InferenceEventsRecorder from "@/components/dashboard/InferenceEventsRecorder";
-import { clearAllDetectionEvents } from "@/services/detectionEventsStore";
+import { clearAllDetectionEvents, updateCameraDisplayNameOnEvents } from "@/services/detectionEventsStore";
 import { clearExportRootDirectoryHandle } from "@/services/detectionFolderExport";
 import { clearCameraRegistry } from "@/services/cameraRegistry";
 import { clearCameraIdMap, getCameraFingerprint, getOrCreateStableCameraId } from "@/services/cameraIdentity";
@@ -13,6 +14,7 @@ export type DashboardView =
   | "cameras2"
   | "cameras3"
   | "cameras4"
+  | "twin"
   | "liveview"
   | "services"
   | "events"
@@ -61,6 +63,7 @@ const ModelsView = lazy(() => import("@/components/dashboard/ModelsView"));
 const ServicesView = lazy(() => import("@/components/dashboard/ServicesView"));
 const EventsView = lazy(() => import("@/components/dashboard/EventsView"));
 const SettingsView = lazy(() => import("@/components/dashboard/SettingsView"));
+const TwinView = lazy(() => import("@/components/dashboard/TwinView"));
 
 function isCameraType(v: unknown): v is CameraConfig["type"] {
   return v === "usb" || v === "rtsp" || v === "csi";
@@ -125,7 +128,9 @@ function camerasForWorkspace(all: CameraConfig[], workspaceId: CameraWorkspaceId
   );
 }
 
-const Dashboard = () => {
+const Dashboard = ({ onLogout }: { onLogout: () => void }) => {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [view, setView] = useState<DashboardView>("home");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [selectedCamera, setSelectedCamera] = useState<CameraConfig | null>(null);
@@ -151,6 +156,13 @@ const Dashboard = () => {
   }, []);
 
   useEffect(() => {
+    const st = location.state as { openSettings?: boolean } | undefined;
+    if (!st?.openSettings) return;
+    setView("settings");
+    navigate("/dashboard", { replace: true });
+  }, [location.state, navigate]);
+
+  useEffect(() => {
     try {
       localStorage.setItem(CAMERAS_STORAGE_KEY, JSON.stringify(cameras));
     } catch {
@@ -167,6 +179,10 @@ const Dashboard = () => {
   const handleUpdateCamera = (cameraId: string, patch: Partial<CameraConfig>) => {
     setCameras((prev) => prev.map((c) => (c.id === cameraId ? { ...c, ...patch } : c)));
     setSelectedCamera((prev) => (prev && prev.id === cameraId ? { ...prev, ...patch } : prev));
+    if (typeof patch.name === "string") {
+      const next = patch.name.trim();
+      if (next) void updateCameraDisplayNameOnEvents(cameraId, next).catch(() => null);
+    }
   };
 
   const handleAddCamera = (camera: CameraConfig, opts?: { openLive?: boolean }) => {
@@ -230,8 +246,10 @@ const Dashboard = () => {
         return renderSuspended(
           <DashboardHome
             cameras={cameras}
-            onAddCamera={() => setView("cameras")}
+            onAddCamera={handleAddCamera}
+            onUpdateCamera={handleUpdateCamera}
             onViewCamera={handleOpenLiveView}
+            onOpenSettings={() => setView("settings")}
           />
         );
       case "cameras":
@@ -259,14 +277,24 @@ const Dashboard = () => {
         return renderSuspended(<EventsView cameras={cameras} />);
       case "models":
         return renderSuspended(<ModelsView />);
-      case "settings":
-        return renderSuspended(<SettingsView onResetAll={handleResetAll} />);
+      case "twin":
+        return renderSuspended(<TwinView />);
+        case "settings":
+        return renderSuspended(
+          <SettingsView
+            onResetAll={handleResetAll}
+            onLogout={onLogout}
+            onSwitchDashboardDevice={() => setView("home")}
+          />
+        );
       default:
         return renderSuspended(
           <DashboardHome
             cameras={cameras}
-            onAddCamera={() => setView("cameras")}
+            onAddCamera={handleAddCamera}
+            onUpdateCamera={handleUpdateCamera}
             onViewCamera={handleOpenLiveView}
+            onOpenSettings={() => setView("settings")}
           />
         );
     }
@@ -287,7 +315,13 @@ const Dashboard = () => {
       />
       <div className="flex-1 flex flex-col min-h-0">
         <DashboardTopBar onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
-        <main className="flex-1 p-6 overflow-auto">
+        <main
+          className={
+            view === "twin"
+              ? "flex-1 min-h-0 flex flex-col p-0 overflow-hidden"
+              : "flex-1 min-h-0 p-6 overflow-auto"
+          }
+        >
           {renderView()}
         </main>
       </div>

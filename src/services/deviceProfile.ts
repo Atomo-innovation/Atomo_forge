@@ -1,10 +1,12 @@
 /**
- * Stores the device registration details locally so the dashboard / top bar
- * can display them, and Login can decide whether to send the user to /register
- * (first run) or directly to /dashboard (already registered).
+ * Stores device registration per MeshCentral username so multiple accounts on one
+ * browser each see their own registration / dashboard device info.
  *
- * Source of truth on the server is MySQL (`atomo_registered_devices`); this
- * is a local cache populated on a successful POST /api/devices/register.
+ * Key: `atomo_device_profile:<normalizedUsername>` for logged-in flows.
+ *
+ * Legacy key `atomo_device_profile` (no suffix) is used only when there is no
+ * username — e.g. onboarding registration before mesh login. It is never copied
+ * onto a named user automatically (that used to make every account share one device).
  */
 
 export type DeviceProfile = {
@@ -18,14 +20,21 @@ export type DeviceProfile = {
   registeredAt: number;
 };
 
-const KEY = "atomo_device_profile";
+const LEGACY_KEY = "atomo_device_profile";
+
+function normalizeUsername(username: string): string {
+  return username.trim().toLowerCase();
+}
+
+function keyedStorageKey(username: string): string {
+  return `${LEGACY_KEY}:${normalizeUsername(username)}`;
+}
 
 export const DEVICE_PROFILE_CHANGED_EVENT = "atomo-forge:device-profile-changed";
 
-export function getDeviceProfile(): DeviceProfile | null {
+function readParsed(raw: string | null): DeviceProfile | null {
+  if (!raw) return null;
   try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return null;
     const parsed = JSON.parse(raw) as DeviceProfile;
     if (!parsed || typeof parsed.serialNumber !== "string") return null;
     return parsed;
@@ -34,24 +43,67 @@ export function getDeviceProfile(): DeviceProfile | null {
   }
 }
 
-export function setDeviceProfile(p: DeviceProfile): void {
+function dispatchChanged(): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify(p));
     window.dispatchEvent(new Event(DEVICE_PROFILE_CHANGED_EVENT));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Read legacy blob only (no per-user key). */
+function readLegacyProfile(): DeviceProfile | null {
+  try {
+    return readParsed(localStorage.getItem(LEGACY_KEY));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * @param username MeshCentral login name (normalized by callers). Pass null/undefined to use legacy-only storage (onboarding without login).
+ */
+export function getDeviceProfile(username?: string | null): DeviceProfile | null {
+  try {
+    const u = username != null && String(username).trim() !== "" ? normalizeUsername(String(username)) : null;
+    if (u) {
+      return readParsed(localStorage.getItem(keyedStorageKey(u)));
+    }
+    return readLegacyProfile();
+  } catch {
+    return null;
+  }
+}
+
+export function setDeviceProfile(username: string | null | undefined, profile: DeviceProfile): void {
+  try {
+    const u = username != null && String(username).trim() !== "" ? normalizeUsername(String(username)) : null;
+    const payload = JSON.stringify(profile);
+    if (u) {
+      localStorage.setItem(keyedStorageKey(u), payload);
+    } else {
+      localStorage.setItem(LEGACY_KEY, payload);
+    }
+    dispatchChanged();
   } catch {
     // ignore quota / disabled storage
   }
 }
 
-export function clearDeviceProfile(): void {
+export function clearDeviceProfile(username?: string | null): void {
   try {
-    localStorage.removeItem(KEY);
-    window.dispatchEvent(new Event(DEVICE_PROFILE_CHANGED_EVENT));
+    const u = username != null && String(username).trim() !== "" ? normalizeUsername(String(username)) : null;
+    if (u) {
+      localStorage.removeItem(keyedStorageKey(u));
+    } else {
+      localStorage.removeItem(LEGACY_KEY);
+    }
+    dispatchChanged();
   } catch {
-    // ignore
+    /* ignore */
   }
 }
 
-export function hasDeviceProfile(): boolean {
-  return getDeviceProfile() != null;
+export function hasDeviceProfile(username?: string | null): boolean {
+  return getDeviceProfile(username) != null;
 }

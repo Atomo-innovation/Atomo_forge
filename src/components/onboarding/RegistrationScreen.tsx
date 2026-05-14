@@ -10,21 +10,41 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { setDeviceProfile } from "@/services/deviceProfile";
+import { setDeviceProfile, getDeviceProfile } from "@/services/deviceProfile";
+import { useAuthUsername } from "@/contexts/AuthUsernameContext";
+import { authApiUrl } from "@/services/authApiUrl";
 
 interface RegistrationScreenProps {
   onSuccess: () => void;
+  /** From Settings → register another device (same form, different serial). */
+  registrationPurpose?: "initial" | "additional";
+  /**
+   * Profile storage key: omit to use logged-in MeshCentral username from context (normal login/register routes).
+   * Pass explicitly from onboarding (`null` = legacy device cache until login).
+   */
+  meshUsername?: string | null;
 }
 
-const RegistrationScreen = ({ onSuccess }: RegistrationScreenProps) => {
+const RegistrationScreen = ({
+  onSuccess,
+  registrationPurpose = "initial",
+  meshUsername: meshUsernameProp,
+}: RegistrationScreenProps) => {
+  const authUsername = useAuthUsername();
+  const storageUser = meshUsernameProp !== undefined ? meshUsernameProp : authUsername;
+
   const defaultMeshCentralBaseUrl = "https://192.168.1.30:4434";
-  const [serialNumber, setSerialNumber] = useState("APU-2026-E7K3-9F1A");
+  const cached =
+    registrationPurpose === "additional" ? getDeviceProfile(storageUser ?? undefined) : null;
+  const [serialNumber, setSerialNumber] = useState(
+    () => (registrationPurpose === "additional" ? "" : "APU-2026-E7K3-9F1A"),
+  );
   const [deviceName, setDeviceName] = useState("");
-  const [organizationName, setOrganizationName] = useState("");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
-  const [location, setLocation] = useState("");
-  const [cloudSync, setCloudSync] = useState(false);
+  const [organizationName, setOrganizationName] = useState(() => cached?.organizationName ?? "");
+  const [email, setEmail] = useState(() => cached?.email ?? "");
+  const [phone, setPhone] = useState(() => cached?.phone ?? "");
+  const [location, setLocation] = useState(() => cached?.location ?? "");
+  const [cloudSync, setCloudSync] = useState(() => !!cached?.cloudSync);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -61,14 +81,24 @@ const RegistrationScreen = ({ onSuccess }: RegistrationScreenProps) => {
     setError("");
     setLoading(true);
     try {
+      if (!email.trim()) {
+        setError("Email is required and must be unique in the database.");
+        return;
+      }
+      const emailNorm = email.trim().toLowerCase();
+      const meshForApi =
+        typeof storageUser === "string" && storageUser.trim() !== ""
+          ? storageUser.trim().toLowerCase()
+          : undefined;
       const res = await fetch("/api/devices/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           serialNumber: serialNumber.trim(),
+          meshUsername: meshForApi,
           deviceName: deviceName.trim(),
           organizationName: organizationName.trim(),
-          email: email.trim() || undefined,
+          email: emailNorm,
           phone: phone.trim() || undefined,
           location: location.trim() || undefined,
           cloudSync,
@@ -81,11 +111,11 @@ const RegistrationScreen = ({ onSuccess }: RegistrationScreenProps) => {
       }
       // Cache the registered device details locally so the dashboard top bar
       // can display them and Login knows registration is already complete.
-      setDeviceProfile({
+      setDeviceProfile(storageUser ?? undefined, {
         serialNumber: serialNumber.trim(),
         deviceName: deviceName.trim(),
         organizationName: organizationName.trim(),
-        email: email.trim() || undefined,
+        email: emailNorm,
         phone: phone.trim() || undefined,
         location: location.trim() || undefined,
         cloudSync,
@@ -103,7 +133,7 @@ const RegistrationScreen = ({ onSuccess }: RegistrationScreenProps) => {
     let cancelled = false;
     (async () => {
       try {
-        const r = await fetch("/api/meshcentral/status");
+        const r = await fetch(authApiUrl("/api/meshcentral/status"));
         const j = await r.json().catch(() => null);
         if (cancelled) return;
         if (!j?.ok) {
@@ -205,7 +235,7 @@ const RegistrationScreen = ({ onSuccess }: RegistrationScreenProps) => {
         payload.meshCentralUser = u;
         payload.meshCentralPassword = p;
       }
-      const r = await fetch("/api/meshcentral/create-group", {
+      const r = await fetch(authApiUrl("/api/meshcentral/create-group"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -263,7 +293,7 @@ const RegistrationScreen = ({ onSuccess }: RegistrationScreenProps) => {
         payload.meshCentralUser = u;
         payload.meshCentralPassword = p;
       }
-      const r = await fetch("/api/meshcentral/delete-group", {
+      const r = await fetch(authApiUrl("/api/meshcentral/delete-group"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -321,7 +351,7 @@ const RegistrationScreen = ({ onSuccess }: RegistrationScreenProps) => {
       if (sudoPassword != null && sudoPassword !== "") {
         payload.sudoPassword = sudoPassword;
       }
-      const r = await fetch("/api/meshcentral/run-agent", {
+      const r = await fetch(authApiUrl("/api/meshcentral/run-agent"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -371,8 +401,14 @@ const RegistrationScreen = ({ onSuccess }: RegistrationScreenProps) => {
               <Cpu className="w-5 h-5 text-primary-foreground" />
             </div>
             <div>
-              <h2 className="text-2xl font-bold">Register Your Device</h2>
-              <p className="text-sm text-muted-foreground">Connect your Atomo Processing Unit</p>
+              <h2 className="text-2xl font-bold">
+                {registrationPurpose === "additional" ? "Register another device" : "Register Your Device"}
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                {registrationPurpose === "additional"
+                  ? "Add another Atomo unit — use its serial number and details below."
+                  : "Connect your Atomo Processing Unit"}
+              </p>
             </div>
           </div>
 
@@ -422,14 +458,18 @@ const RegistrationScreen = ({ onSuccess }: RegistrationScreenProps) => {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-secondary-foreground mb-2">Email</label>
+                <label className="block text-sm font-medium text-secondary-foreground mb-2">
+                  Email <span className="text-destructive">*</span>
+                </label>
                 <input
                   type="email"
+                  required
                   placeholder="admin@company.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full px-4 py-3 rounded-lg bg-muted border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
                 />
+                <p className="text-xs text-muted-foreground mt-1">Must be unique across all registered devices.</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-secondary-foreground mb-2">Phone</label>

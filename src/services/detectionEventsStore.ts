@@ -137,6 +137,47 @@ export async function listDetectionEvents(limit?: number): Promise<StoredDetecti
   return out;
 }
 
+/** Best-effort: keep stored event labels in sync when the user renames a camera. */
+export async function updateCameraDisplayNameOnEvents(cameraId: string, cameraName: string): Promise<void> {
+  const cid = String(cameraId || "").trim();
+  const name = String(cameraName || "").trim();
+  if (!cid || !name) return;
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite");
+    const st = tx.objectStore(STORE);
+    const idx = st.index("cameraId");
+    const req = idx.openCursor(IDBKeyRange.only(cid));
+    req.onsuccess = () => {
+      const cur = req.result as IDBCursorWithValue | null;
+      if (!cur) return;
+      const row = cur.value as StoredDetectionEvent;
+      if (row.cameraName !== name) {
+        cur.update({ ...row, cameraName: name });
+      }
+      cur.continue();
+    };
+    req.onerror = () => reject(req.error ?? new Error("Failed to update event camera names"));
+    tx.oncomplete = () => {
+      try {
+        db.close();
+      } catch {
+        // ignore
+      }
+      emitChanged();
+      resolve();
+    };
+    tx.onerror = () => {
+      try {
+        db.close();
+      } catch {
+        // ignore
+      }
+      reject(tx.error ?? new Error("Transaction failed"));
+    };
+  });
+}
+
 export async function countDetectionEventsByCamera(cameraId: string): Promise<number> {
   const cid = String(cameraId || "").trim();
   if (!cid) return 0;

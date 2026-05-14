@@ -39,12 +39,31 @@ function makeQuietLogger() {
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const apiTarget = "http://localhost:3003";
+  const twinHttpPort = Number(env.TWIN_HTTP_PORT || 3000) || 3000;
   const devHost = env.VITE_DEV_HOST || "electron.local";
   const devPort = Number(env.VITE_DEV_PORT || 8443);
   const extraAllowedHosts = (env.VITE_ALLOWED_HOSTS || "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
+  const previewPort = Number(env.VITE_PREVIEW_PORT || 4173);
+
+  const devHttps = {
+    key: fs.readFileSync(path.resolve(__dirname, "./devcert/key.pem")),
+    cert: fs.readFileSync(path.resolve(__dirname, "./devcert/cert.pem")),
+  };
+
+  /** Same routes on dev server and preview (`vite preview`) so `/api` is never served as SPA HTML. */
+  const forgeDevProxy = {
+    "/api": { target: apiTarget, changeOrigin: true },
+    "/universal": { target: apiTarget, changeOrigin: true, ws: true },
+    "/pdeu-twin": {
+      target: `http://127.0.0.1:${twinHttpPort}`,
+      changeOrigin: true,
+      ws: true,
+      rewrite: (p: string) => (p.replace(/^\/pdeu-twin/, "") || "/"),
+    },
+  };
 
   return ({
   customLogger: makeQuietLogger(),
@@ -56,21 +75,22 @@ export default defineConfig(({ mode }) => {
     strictPort: false,
     // Allow access via electron.local and via LAN IP/hostname for other devices.
     allowedHosts: Array.from(new Set([devHost, ...extraAllowedHosts])),
-    https: {
-      key: fs.readFileSync(path.resolve(__dirname, "./devcert/key.pem")),
-      cert: fs.readFileSync(path.resolve(__dirname, "./devcert/cert.pem")),
-    },
+    https: devHttps,
     origin: `https://${devHost}:${devPort}`,
     hmr: {
       host: devHost,
       clientPort: devPort,
       overlay: false,
     },
-    proxy: {
-      "/api": { target: apiTarget, changeOrigin: true },
-      // Universal backend is now embedded in the Forge API process.
-      "/universal": { target: apiTarget, changeOrigin: true, ws: true },
-    },
+    proxy: forgeDevProxy,
+  },
+  preview: {
+    host: true,
+    port: previewPort,
+    strictPort: false,
+    allowedHosts: Array.from(new Set([devHost, ...extraAllowedHosts])),
+    https: devHttps,
+    proxy: forgeDevProxy,
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {
