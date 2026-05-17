@@ -22,6 +22,7 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
   const [runError, setRunError] = useState<string | null>(null);
   const [runStatus, setRunStatus] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [renameOpen, setRenameOpen] = useState(false);
   const unsubscribeWsRef = useRef<null | (() => void)>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const frameImgRef = useRef<HTMLImageElement | null>(null);
@@ -144,6 +145,19 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
   // few hundred ms on some boards.
   const waitMs = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+  const clearStaleInferenceSession = () => {
+    if (!camera?.id) return;
+    stopWs();
+    setProcessing(false);
+    setSessionId(null);
+    setRunStatus(null);
+    onUpdateCamera(camera.id, {
+      inferenceSessionId: undefined,
+      inferenceModelId: undefined,
+      inferenceStartedAt: undefined,
+    });
+  };
+
   const startWebcamPreview = async () => {
     // Browsers only expose mediaDevices in a "secure context" (HTTPS or
     // http://localhost). On a board accessed via http://192.168.x.x it is
@@ -248,6 +262,9 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
         onError: (err) => {
           setRunError(err);
           setProcessing(false);
+          if (/session|expired|not found|unknown/i.test(err)) {
+            clearStaleInferenceSession();
+          }
         },
         onMessage: (msg) => {
           // Surface backend errors from detect.py (e.g. "Cannot open: usb:0"
@@ -398,18 +415,59 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
     selectedModel ? models.find((m) => m.id === selectedModel)?.name ?? "Selected model" : null;
 
   useEffect(() => {
-    if (!camera?.inferenceSessionId) return;
-    connectWsAttach(camera.inferenceSessionId);
+    const sid = camera?.inferenceSessionId;
+    if (!sid || !camera?.id) return;
+
+    let cancelled = false;
+    void fetch("/universal/api/inference/sessions")
+      .then(async (r) => {
+        if (!r.ok || cancelled) return;
+        const data = (await r.json()) as { sessions?: Array<{ id: string }> };
+        const sessions = Array.isArray(data.sessions) ? data.sessions : [];
+        if (cancelled) return;
+        if (sessions.some((s) => s?.id === sid)) {
+          connectWsAttach(sid);
+          return;
+        }
+        setRunError("Previous AI session expired — showing camera preview. Start processing again when ready.");
+        clearStaleInferenceSession();
+      })
+      .catch(() => {
+        if (!cancelled) connectWsAttach(sid);
+      });
+
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [camera?.id, camera?.inferenceSessionId]);
 
   useEffect(() => {
     if (!camera) return;
     if (processing) return;
-    if (camera.type === "usb" || camera.type === "csi") {
-      void startWebcamPreview();
-    }
-    return () => stopWebcam();
+    if (camera.type !== "usb" && camera.type !== "csi") return;
+
+    let cancelled = false;
+    let raf = 0;
+    const tryPreview = (attempt: number) => {
+      if (cancelled) return;
+      if (videoRef.current) {
+        void startWebcamPreview();
+        return;
+      }
+      if (attempt > 40) {
+        setRunError("Camera preview did not mount. Try going back and opening Live View again.");
+        return;
+      }
+      raf = requestAnimationFrame(() => tryPreview(attempt + 1));
+    };
+    tryPreview(0);
+
+    return () => {
+      cancelled = true;
+      if (raf) cancelAnimationFrame(raf);
+      stopWebcam();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [camera?.id, camera?.type, processing]);
 

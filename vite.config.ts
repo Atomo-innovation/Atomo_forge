@@ -2,7 +2,129 @@ import { defineConfig, loadEnv, createLogger } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import fs from "fs";
+import net from "node:net";
+import { createRequire } from "node:module";
+import { spawn, type ChildProcess } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import type { Plugin } from "vite";
 import { componentTagger } from "lovable-tagger";
+
+const __viteRootDir = path.dirname(fileURLToPath(import.meta.url));
+const twinRequire = createRequire(import.meta.url);
+
+/** Same `.env` + `.env.local` merge as the twin launcher so Vite’s proxy targets the correct port. */
+function hydrateForgeDotEnv(): void {
+  try {
+    twinRequire(path.join(__viteRootDir, "load-env.cjs"));
+  } catch {
+    /* ignore missing load-env.cjs */
+  }
+}
+
+function sleep(ms: number) {
+  return new Promise<void>((r) => setTimeout(r, ms));
+}
+
+function tcpOpen(port: number, timeoutMs = 450): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ host: "127.0.0.1", port });
+    let done = false;
+    const finish = (ok: boolean) => {
+      if (done) return;
+      done = true;
+      try {
+        socket.destroy();
+      } catch {
+        /* ignore */
+      }
+      resolve(ok);
+    };
+    socket.setTimeout(timeoutMs);
+    socket.on("connect", () => finish(true));
+    socket.on("timeout", () => finish(false));
+    socket.on("error", () => finish(false));
+  });
+}
+
+async function waitForTwinListening(port: number, maxMs: number): Promise<boolean> {
+  const t0 = Date.now();
+  while (Date.now() - t0 < maxMs) {
+    // eslint-disable-next-line no-await-in-loop
+    if (await tcpOpen(port)) return true;
+    // eslint-disable-next-line no-await-in-loop
+    await sleep(350);
+  }
+  return false;
+}
+
+/** If npm run dev’s twin starts late (or someone runs bare `vite`), bring up the twin listener. */
+function pdeuTwinAutoStartPlugin(repoRoot: string, port: number): Plugin {
+  let child: ChildProcess | undefined;
+  let weSpawned = false;
+  let cleaned = false;
+
+  return {
+    name: "pdeu-twin-auto-start",
+    apply: (_, env) => env.command === "serve" && !env.isPreview,
+    configureServer(server) {
+      if (process.env.SKIP_VITE_AUTO_TWIN === "1" || process.env.SKIP_PDEU_TWIN === "1") {
+        return undefined;
+      }
+      const launcher = path.join(repoRoot, "scripts", "start-pdeu-digital-twin.cjs");
+
+      const bootstrap = async () => {
+        const warmed = await waitForTwinListening(port, 90_000);
+        if (warmed || cleaned) {
+          if (!cleaned && warmed)
+            console.info(`[pdeu-twin] backend ready on 127.0.0.1:${port}`);
+          return;
+        }
+        console.warn(
+          `[pdeu-twin] nothing on 127.0.0.1:${port} after 90s — starting twin via ${launcher}`,
+        );
+        try {
+          child = spawn(process.execPath, [launcher], {
+            cwd: repoRoot,
+            env: {
+              ...process.env,
+              TWIN_HTTP_PORT: String(port),
+              MQTT_DISABLED: process.env.MQTT_DISABLED ?? "1",
+            },
+            stdio: "inherit",
+          });
+          weSpawned = true;
+          child.on("exit", (code, signal) => {
+            if (!weSpawned || cleaned) return;
+            console.warn(`[pdeu-twin] process exited code=${code} signal=${signal ?? "none"}`);
+          });
+        } catch (e) {
+          console.warn("[pdeu-twin] spawn failed:", e);
+        }
+      };
+
+      server.httpServer?.once("listening", () => {
+        void bootstrap();
+      });
+
+      const killChild = () => {
+        cleaned = true;
+        if (!weSpawned || !child?.pid) return;
+        try {
+          console.info("[pdeu-twin] stopping twin child");
+          child.kill("SIGTERM");
+        } catch {
+          /* ignore */
+        }
+      };
+      process.on("exit", killChild);
+
+      return () => {
+        process.off("exit", killChild);
+        killChild();
+      };
+    },
+  };
+}
 
 // Filter only the harmless dev-time TCP-race messages from the WS proxy
 // (browser closes a /universal WS while Vite is still mid-write to upstream).
@@ -37,9 +159,12 @@ function makeQuietLogger() {
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
+  hydrateForgeDotEnv();
   const env = loadEnv(mode, process.cwd(), "");
   const apiTarget = "http://localhost:3003";
-  const twinHttpPort = Number(env.TWIN_HTTP_PORT || 3000) || 3000;
+  /** Match Vite: `.env.development*` overrides `.env` / `.env.local` set by load-env.cjs. */
+  const twinHttpPort =
+    Number(env.TWIN_HTTP_PORT || process.env.TWIN_HTTP_PORT || 3000) || 3000;
   const devHost = env.VITE_DEV_HOST || "electron.local";
   const devPort = Number(env.VITE_DEV_PORT || 8443);
   const extraAllowedHosts = (env.VITE_ALLOWED_HOSTS || "")
@@ -49,23 +174,38 @@ export default defineConfig(({ mode }) => {
   const previewPort = Number(env.VITE_PREVIEW_PORT || 4173);
 
   const devHttps = {
-    key: fs.readFileSync(path.resolve(__dirname, "./devcert/key.pem")),
-    cert: fs.readFileSync(path.resolve(__dirname, "./devcert/cert.pem")),
+    key: fs.readFileSync(path.resolve(__viteRootDir, "./devcert/key.pem")),
+    cert: fs.readFileSync(path.resolve(__viteRootDir, "./devcert/cert.pem")),
   };
 
   /** Same routes on dev server and preview (`vite preview`) so `/api` is never served as SPA HTML. */
   const forgeDevProxy = {
     "/api": { target: apiTarget, changeOrigin: true },
     "/universal": { target: apiTarget, changeOrigin: true, ws: true },
+    "/pdeu-ws-fire": {
+      target: "http://127.0.0.1:8080",
+      changeOrigin: true,
+      ws: true,
+    },
+    "/pdeu-ws-person": {
+      target: "http://127.0.0.1:8081",
+      changeOrigin: true,
+      ws: true,
+    },
     "/pdeu-twin": {
       target: `http://127.0.0.1:${twinHttpPort}`,
       changeOrigin: true,
       ws: true,
+      timeout: 0,
+      proxyTimeout: 0,
       rewrite: (p: string) => (p.replace(/^\/pdeu-twin/, "") || "/"),
     },
   };
 
   return ({
+    define: {
+      "import.meta.env.VITE_FORGE_TWIN_PROXY_PORT": JSON.stringify(String(twinHttpPort)),
+    },
   customLogger: makeQuietLogger(),
   server: {
     // Bind on all interfaces, but allow a friendly local hostname like
@@ -92,10 +232,14 @@ export default defineConfig(({ mode }) => {
     https: devHttps,
     proxy: forgeDevProxy,
   },
-  plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
+  plugins: [
+    pdeuTwinAutoStartPlugin(__viteRootDir, twinHttpPort),
+    react(),
+    mode === "development" && componentTagger(),
+  ].filter(Boolean),
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      "@": path.resolve(__viteRootDir, "./src"),
     },
   },
 });

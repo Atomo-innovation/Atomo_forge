@@ -4,8 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 /**
- * Embeds the PDEU digital twin (three.js) served by `pdeu_digitaltwin /server.js`.
- * Vite proxies `/pdeu-twin/*` to that server with `ws: true` so HTTPS + wss work from Forge.
+ * Embeds the PDEU digital twin (three.js). Path is resolved by scripts/resolve-pdeu-digital-twin-dir.cjs
+ * (prefer final_ prefix trees under the repo root, not a stale repo-root pdeu_digitaltwin folder).
+ * Vite proxies /pdeu-twin/ to the twin HTTP server (TWIN_HTTP_PORT) with WS support.
  */
 const TwinView = () => {
   const [iframeKey, setIframeKey] = useState(0);
@@ -24,27 +25,50 @@ const TwinView = () => {
   useEffect(() => {
     let cancelled = false;
     setProxyOk(null);
-    fetch("/pdeu-twin/", { method: "GET", cache: "no-store" })
-      .then((r) => {
-        if (!cancelled) setProxyOk(r.ok);
-      })
-      .catch(() => {
-        if (!cancelled) setProxyOk(false);
-      });
+
+    async function probe() {
+      /** Twin may boot after slow `npm install` in [twin] or via Vite’s auto-start; avoid flashing a false alarm. */
+      const maxAttempts = 90;
+      for (let i = 0; i < maxAttempts; i++) {
+        if (cancelled) return;
+        try {
+          const r = await fetch("/pdeu-twin/", {
+            method: "GET",
+            cache: "no-store",
+            credentials: "same-origin",
+          });
+          // `fetch.ok` excludes 304; proxy/CDN sometimes returns cached 304 → treat as reachable.
+          if (!cancelled && r.status >= 200 && r.status < 400) {
+            setProxyOk(true);
+            return;
+          }
+        } catch {
+          /* proxy not ready yet */
+        }
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      if (!cancelled) setProxyOk(false);
+    }
+
+    void probe();
     return () => {
       cancelled = true;
     };
   }, [iframeKey]);
 
   return (
-    <div className="flex flex-1 min-h-0 min-w-0 flex-col gap-2">
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col gap-2">
       {proxyOk === false && (
         <Alert variant="destructive">
           <AlertTitle>Digital twin server not reachable</AlertTitle>
           <AlertDescription className="text-sm space-y-2">
             <p>
-              The Vite proxy could not reach the twin HTTP process on port{" "}
-              <span className="font-mono">TWIN_HTTP_PORT</span> (default 3000). In the terminal, confirm{" "}
+              The app proxies <span className="font-mono">/pdeu-twin</span> to the twin HTTP server on{" "}
+              <span className="font-mono">127.0.0.1:{import.meta.env.VITE_FORGE_TWIN_PROXY_PORT}</span>{" "}
+              (set{" "}
+              <span className="font-mono">TWIN_HTTP_PORT</span> in <span className="font-mono">.env</span> if needed — same
+              for Vite and the twin). In the terminal, confirm{" "}
               <span className="font-mono">[twin]</span> printed{" "}
               <span className="font-mono">DIGITAL TWIN SERVER STARTED</span> and restart{" "}
               <code className="rounded bg-muted px-1">npm run dev</code>.
@@ -70,7 +94,7 @@ const TwinView = () => {
           </a>
         </Button>
       </div>
-      <div className="relative flex min-h-[70vh] flex-1 min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-background">
+      <div className="relative flex min-h-0 flex-1 min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-black">
         {iframeBusy && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-background/90 backdrop-blur-[1px]">
             <Loader2 className="h-10 w-10 animate-spin text-muted-foreground" aria-hidden />
@@ -85,7 +109,7 @@ const TwinView = () => {
           key={iframeKey}
           title="PDEU Digital Twin"
           src={twinUrl}
-          className="h-full w-full min-h-[65vh] flex-1 border-0 bg-black"
+          className="h-full min-h-0 w-full flex-1 border-0 bg-black"
           allow="fullscreen"
           referrerPolicy="same-origin"
           loading="eager"

@@ -1,20 +1,10 @@
 #!/usr/bin/env bash
 # Start PDEU digital twin (Express + WebSockets on TWIN_HTTP_PORT, default 3000). Used by `npm run dev`.
-# Folder may be `pdeu_digitaltwin` or `pdeu_digitaltwin ` (trailing space) depending on checkout.
+# Folder is resolved dynamically (repo root or any top-level final_*/pdeu_digitaltwin/...) — same as scripts/start-pdeu-digital-twin.cjs.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-TWIN_DIR=""
-for cand in "$REPO_ROOT/pdeu_digitaltwin " "$REPO_ROOT/pdeu_digitaltwin"; do
-  if [[ -f "$cand/server.js" ]]; then
-    TWIN_DIR="$cand"
-    break
-  fi
-done
-if [[ -z "$TWIN_DIR" ]]; then
-  echo "[twin] server.js not found under $REPO_ROOT/pdeu_digitaltwin or .../pdeu_digitaltwin " >&2
-  exit 1
-fi
+TWIN_DIR="$(cd "$REPO_ROOT" && node "$REPO_ROOT/scripts/resolve-pdeu-digital-twin-dir.cjs")"
 cd "$TWIN_DIR"
 node "$REPO_ROOT/scripts/install-pdeu-digital-twin.cjs" || exit $?
 if [[ -f "$REPO_ROOT/.env" ]]; then

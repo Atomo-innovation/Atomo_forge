@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "postinstall": "node scripts/install-pdeu-digital-twin.cjs",
-    "dev": "concurrently -k -n tunnel,api,twin,web -c yellow,cyan,green,magenta \"bash scripts/mysql-tunnel-to-ec2.sh\" \"node auth-server.cjs\" \"bash scripts/start-pdeu-digital-twin.sh\" \"vite\"",
+    "dev": "concurrently -k -n tunnel,api,twin,web -c yellow,cyan,green,magenta \"bash scripts/mysql-tunnel-to-ec2.sh\" \"node auth-server.cjs\" \"node scripts/start-pdeu-digital-twin.cjs\" \"vite\"",
+    "dev:no-tunnel": "concurrently -k -n api,twin,web -c cyan,green,magenta \"node auth-server.cjs\" \"node scripts/start-pdeu-digital-twin.cjs\" \"vite\"",
     "mysql:tunnel": "bash scripts/mysql-tunnel-to-ec2.sh",
     "migrate": "node scripts/db-migrate.cjs",
     "twin:install": "node scripts/install-pdeu-digital-twin.cjs",

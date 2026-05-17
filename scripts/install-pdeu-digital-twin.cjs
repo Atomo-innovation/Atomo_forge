@@ -7,14 +7,10 @@
 const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
+const { resolvePdeuDigitalTwinDir } = require("./resolve-pdeu-digital-twin-dir.cjs");
 
 function findTwinDir(repoRoot) {
-  const candidates = ["pdeu_digitaltwin ", "pdeu_digitaltwin"];
-  for (const name of candidates) {
-    const dir = path.join(repoRoot, name);
-    if (fs.existsSync(path.join(dir, "package.json"))) return dir;
-  }
-  return null;
+  return resolvePdeuDigitalTwinDir(repoRoot);
 }
 
 function needsInstall(twinDir) {

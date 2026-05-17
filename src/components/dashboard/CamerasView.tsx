@@ -175,7 +175,19 @@ const CamerasView = ({
       ) : (
         <div className="space-y-3">
           {cameras.map((cam) => (
-            <div key={cam.id} className="bg-surface rounded-xl p-4 flex items-center gap-4 hover:border-primary/30 transition-colors">
+            <div
+              key={cam.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => onOpenLiveView(cam)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onOpenLiveView(cam);
+                }
+              }}
+              className="bg-surface rounded-xl p-4 flex items-center gap-4 hover:border-primary/30 transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            >
               <div className="w-32 h-20 rounded-lg bg-muted flex items-center justify-center shrink-0">
                 <div className="w-8 h-8 text-muted-foreground/30">📷</div>
               </div>
@@ -202,15 +214,18 @@ const CamerasView = ({
               <div className="flex gap-2 shrink-0">
                 <button
                   type="button"
-                  onClick={() => onOpenLiveView(cam)}
-                  disabled={cam.status === "offline"}
-                  className="px-3 py-2 rounded-lg bg-primary/10 text-primary text-sm font-medium hover:bg-primary/20 transition-colors disabled:opacity-40"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenLiveView(cam);
+                  }}
+                  className="px-3 py-2 rounded-lg bg-primary/10 text-primary text-sm font-medium hover:bg-primary/20 transition-colors"
+                  aria-label={`Open live view for ${cam.name}`}
                 >
                   <Play className="w-4 h-4" />
                 </button>
                 <button
                   type="button"
-                  onClick={() => setRenameTarget(cam)}
+                  onClick={(e) => { e.stopPropagation(); setRenameTarget(cam); }}
                   className="rounded-lg border border-border bg-background px-3 py-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                   aria-label={`Rename ${cam.name}`}
                 >
@@ -218,7 +233,8 @@ const CamerasView = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.stopPropagation();
                     const ok = window.confirm(`Delete camera "${cam.name}"?`);
                     if (!ok) return;
                     onDeleteCamera(cam.id);

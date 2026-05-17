@@ -279,7 +279,7 @@ const Dashboard = ({ onLogout }: { onLogout: () => void }) => {
         return renderSuspended(<ModelsView />);
       case "twin":
         return renderSuspended(<TwinView />);
-        case "settings":
+      case "settings":
         return renderSuspended(
           <SettingsView
             onResetAll={handleResetAll}

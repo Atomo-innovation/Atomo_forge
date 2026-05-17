@@ -4,8 +4,10 @@
 # Auto-started by `npm run dev`. Reads .env for:
 #   FORGE_EC2_HOST          (default: 65.2.142.160)
 #   FORGE_EC2_USER          (default: ubuntu)
-#   FORGE_EC2_SSH_KEY       (path to .pem; required)
+#   FORGE_EC2_SSH_KEY       (path to .pem; required unless tunnel skipped)
 #   FORGE_MYSQL_LOCAL_PORT  (default: 3307; must match MYSQL_PORT in .env)
+#   FORGE_SKIP_MYSQL_TUNNEL  (optional: 1/true/yes — skip SSH tunnel; local DB only)
+#   MYSQL_TUNNEL_SKIP        (alias for FORGE_SKIP_MYSQL_TUNNEL)
 #
 # Behavior:
 #   • If something already listens on FORGE_MYSQL_LOCAL_PORT, reuse it and sleep.
@@ -27,6 +29,16 @@ fi
 FORGE_EC2_HOST="${FORGE_EC2_HOST:-65.2.142.160}"
 FORGE_EC2_USER="${FORGE_EC2_USER:-ubuntu}"
 FORGE_MYSQL_LOCAL_PORT="${FORGE_MYSQL_LOCAL_PORT:-3307}"
+
+# Local-only dev: no EC2 PEM / no forwarded MySQL — use a local DATABASE_URL/MYSQL_* instead.
+# Normalize: strip CRLF from .env, lowercase, trim (fixes Windows-saved .env).
+_FORGE_TUNNEL_SKIP="$(printf '%s' "${FORGE_SKIP_MYSQL_TUNNEL:-${MYSQL_TUNNEL_SKIP:-}}" | tr -d '\r' | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+case "${_FORGE_TUNNEL_SKIP}" in 1 | true | yes | on) ;; *) _FORGE_TUNNEL_SKIP="" ;; esac
+
+if [[ -n "${_FORGE_TUNNEL_SKIP}" ]]; then
+  echo "[tunnel] Skipped (FORGE_SKIP_MYSQL_TUNNEL / MYSQL_TUNNEL_SKIP). Idle slot for npm run dev."
+  while sleep 3600; do :; done
+fi
 
 # Expand ~ / $HOME in the configured key path (in case .env wasn't sourced
 # through bash, e.g. when called by a Node process).
