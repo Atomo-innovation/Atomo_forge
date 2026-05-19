@@ -590,7 +590,7 @@ const ModelsView = () => {
 
         {/* Right: Details */}
         <div className="lg:col-span-7 xl:col-span-8">
-          <div className="bg-surface rounded-xl p-6 min-h-[520px]">
+          <div className="bg-surface rounded-xl p-6">
             {!selectedModel ? (
               <div className="h-full flex flex-col items-center justify-center text-center py-16">
                 <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mb-3">

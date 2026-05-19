@@ -57,7 +57,11 @@ function main() {
     process.exit(1);
   }
 
-  const env = { ...process.env, MQTT_DISABLED: process.env.MQTT_DISABLED || "1" };
+  const env = {
+    ...process.env,
+    MQTT_DISABLED: process.env.MQTT_DISABLED || "1",
+    DETECTION_SOURCE: process.env.DETECTION_SOURCE || "json",
+  };
   console.log("[twin] starting from:", twinDir);
   const child = spawn(process.execPath, ["server.js"], {
     cwd: twinDir,

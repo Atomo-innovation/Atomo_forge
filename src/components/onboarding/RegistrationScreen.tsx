@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { setDeviceProfile, getDeviceProfile } from "@/services/deviceProfile";
 import { useAuthUsername } from "@/contexts/AuthUsernameContext";
 import { authApiUrl } from "@/services/authApiUrl";
+import { clearMeshLoginCredential, readMeshLoginCredential } from "@/services/authSession";
 
 interface RegistrationScreenProps {
   onSuccess: () => void;
@@ -32,8 +33,12 @@ const RegistrationScreen = ({
 }: RegistrationScreenProps) => {
   const authUsername = useAuthUsername();
   const storageUser = meshUsernameProp !== undefined ? meshUsernameProp : authUsername;
+  const loggedInMeshUser =
+    typeof storageUser === "string" && storageUser.trim() !== ""
+      ? storageUser.trim().toLowerCase()
+      : null;
 
-  const defaultMeshCentralBaseUrl = "https://192.168.1.30:4434";
+  const defaultMeshCentralBaseUrl = "https://65.2.142.160:4434";
   const cached =
     registrationPurpose === "additional" ? getDeviceProfile(storageUser ?? undefined) : null;
   const [serialNumber, setSerialNumber] = useState(
@@ -58,8 +63,12 @@ const RegistrationScreen = ({
     provisionDbError?: string | null;
     provisionPasswordMatchesDb?: boolean | null;
   } | null>(null);
-  const [meshCentralUser, setMeshCentralUser] = useState("");
-  const [meshCentralPassword, setMeshCentralPassword] = useState("");
+  const [meshCentralUser, setMeshCentralUser] = useState(() => loggedInMeshUser ?? "");
+  const [meshCentralPassword, setMeshCentralPassword] = useState(() => {
+    if (!loggedInMeshUser) return "";
+    const c = readMeshLoginCredential();
+    return c?.username === loggedInMeshUser ? c.password : "";
+  });
   const [meshGroupName, setMeshGroupName] = useState("");
   const [meshLoading, setMeshLoading] = useState(false);
   const [meshError, setMeshError] = useState("");
@@ -74,16 +83,106 @@ const RegistrationScreen = ({
   const [meshRunSudoPassword, setMeshRunSudoPassword] = useState("");
   const [meshDeleteLoading, setMeshDeleteLoading] = useState(false);
   /** Step 1: MeshCentral login. Step 2: create group + install commands. */
-  const [meshWizardPhase, setMeshWizardPhase] = useState<"login" | "devices">("login");
+  const [meshWizardPhase, setMeshWizardPhase] = useState<"login" | "devices">(() =>
+    loggedInMeshUser ? "devices" : "login",
+  );
+  /** When true, show Step 1 even though Forge login already established the MeshCentral user. */
+  const [meshShowManualSignIn, setMeshShowManualSignIn] = useState(false);
+
+  useEffect(() => {
+    if (meshGroupName.trim()) return;
+    const suggested = organizationName.trim() || deviceName.trim();
+    if (suggested) setMeshGroupName(suggested);
+  }, [organizationName, deviceName, meshGroupName]);
+
+  /** Create MeshCentral device group; returns false if API failed. */
+  const createMeshGroupByName = async (name: string): Promise<boolean> => {
+    if (meshIdCreated.trim()) return true;
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setMeshError("Enter a device group name (or organization / device name) for MeshCentral.");
+      return false;
+    }
+    const { u, p } = resolveMeshCredentials();
+    if (meshStatus !== null && !meshStatus.serverProvisionConfigured && (!u || !p)) {
+      setMeshError("Enter MeshCentral username and password (same login as the MeshCentral web UI).");
+      return false;
+    }
+    if (u && !p) {
+      setMeshError("Enter MeshCentral password, or clear the username to use server-only provisioning.");
+      return false;
+    }
+    if (!u && p) {
+      setMeshError("Enter MeshCentral username, or clear the password to use server-only provisioning.");
+      return false;
+    }
+    if (meshStatus !== null && !meshStatus.configured) {
+      setMeshError("MeshCentral is not configured on the server. Fix settings above or turn off Activate Cloud Sync.");
+      return false;
+    }
+    setMeshLoading(true);
+    setMeshError("");
+    try {
+      const payload: {
+        meshName: string;
+        meshCentralUser?: string;
+        meshCentralPassword?: string;
+      } = { meshName: trimmed };
+      if (u && p) {
+        payload.meshCentralUser = u;
+        payload.meshCentralPassword = p;
+      }
+      const r = await fetch(authApiUrl("/api/meshcentral/create-group"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const j = await r.json().catch(() => null);
+      if (!r.ok || !j?.ok) {
+        const base = j?.error || "Could not create device group";
+        const diag = j?.diagnostics as
+          | { hasProvisionPass?: boolean; hasControlUrl?: boolean; meshcentralConfigPath?: string | null }
+          | undefined;
+        const extra =
+          r.status === 503 && diag && !diag.hasProvisionPass
+            ? " Add MESHCENTRAL_PROVISION_PASS (and MESHCENTRAL_PROVISION_USER) to ready_atomo-forge-suite/.env, then restart the auth server (the API on port 3003). See /api/meshcentral/debug for which files were found."
+            : r.status === 503 && diag && !diag.hasControlUrl
+              ? " Point MESHCENTRAL_CONFIG_PATH at meshcentral-data/config.json or symlink meshcentral-data next to ready_atomo-forge-suite. See /api/meshcentral/debug."
+              : "";
+        setMeshError(base + extra);
+        return false;
+      }
+      setMeshInstallCmd(String(j.linuxInstall || ""));
+      setMeshUninstallCmd(String(j.linuxUninstall || ""));
+      setMeshIdCreated(String(j.meshid || ""));
+      if (typeof j.meshName === "string" && j.meshName) setMeshGroupName(j.meshName);
+      else setMeshGroupName(trimmed);
+      setMeshWizardPhase("devices");
+      return true;
+    } catch {
+      setMeshError("Network error. Is the API server running on port 3003?");
+      return false;
+    } finally {
+      setMeshLoading(false);
+    }
+  };
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setMeshError("");
     setLoading(true);
     try {
       if (!email.trim()) {
         setError("Email is required and must be unique in the database.");
         return;
+      }
+      if (meshStatus?.configured && !meshIdCreated.trim()) {
+        const groupName = meshGroupName.trim() || organizationName.trim() || deviceName.trim();
+        if (groupName) {
+          const meshOk = await createMeshGroupByName(groupName);
+          if (!meshOk) return;
+        }
       }
       const emailNorm = email.trim().toLowerCase();
       const meshForApi =
@@ -179,10 +278,25 @@ const RegistrationScreen = ({
     };
   }, []);
 
+  useEffect(() => {
+    if (!loggedInMeshUser) return;
+    setMeshCentralUser((prev) => (prev.trim() ? prev : loggedInMeshUser));
+    const c = readMeshLoginCredential();
+    if (c?.username === loggedInMeshUser && c.password) {
+      setMeshCentralPassword((prev) => (prev ? prev : c.password));
+    }
+    setMeshWizardPhase("devices");
+  }, [loggedInMeshUser]);
+
+  const resolveMeshCredentials = () => {
+    const u = (meshCentralUser.trim() || loggedInMeshUser || "").trim();
+    const p = meshCentralPassword.trim();
+    return { u, p };
+  };
+
   const handleMeshContinueToDevices = () => {
     setMeshError("");
-    const u = meshCentralUser.trim();
-    const p = meshCentralPassword;
+    const { u, p } = resolveMeshCredentials();
     if (meshStatus !== null && !meshStatus.serverProvisionConfigured && (!u || !p)) {
       setMeshError("Enter MeshCentral username and password (same as the web UI).");
       return;
@@ -199,71 +313,18 @@ const RegistrationScreen = ({
       setMeshError("MeshCentral server URLs are not available. Fix the configuration shown above first.");
       return;
     }
+    setMeshShowManualSignIn(false);
     setMeshWizardPhase("devices");
   };
 
   const handleCreateMeshGroup = async () => {
     if (meshLoading) return;
-    setMeshError("");
     const name = meshGroupName.trim();
     if (!name) {
       setMeshError("Enter a device group name");
       return;
     }
-    const u = meshCentralUser.trim();
-    const p = meshCentralPassword;
-    if (meshStatus !== null && !meshStatus.serverProvisionConfigured && (!u || !p)) {
-      setMeshError("Enter MeshCentral username and password (same login as the MeshCentral web UI).");
-      return;
-    }
-    if (u && !p) {
-      setMeshError("Enter MeshCentral password, or clear the username to use server-only provisioning.");
-      return;
-    }
-    if (!u && p) {
-      setMeshError("Enter MeshCentral username, or clear the password to use server-only provisioning.");
-      return;
-    }
-    setMeshLoading(true);
-    try {
-      const payload: {
-        meshName: string;
-        meshCentralUser?: string;
-        meshCentralPassword?: string;
-      } = { meshName: name };
-      if (u && p) {
-        payload.meshCentralUser = u;
-        payload.meshCentralPassword = p;
-      }
-      const r = await fetch(authApiUrl("/api/meshcentral/create-group"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const j = await r.json().catch(() => null);
-      if (!r.ok || !j?.ok) {
-        const base = j?.error || "Could not create device group";
-        const diag = j?.diagnostics as
-          | { hasProvisionPass?: boolean; hasControlUrl?: boolean; meshcentralConfigPath?: string | null }
-          | undefined;
-        const extra =
-          r.status === 503 && diag && !diag.hasProvisionPass
-            ? " Add MESHCENTRAL_PROVISION_PASS (and MESHCENTRAL_PROVISION_USER) to ready_atomo-forge-suite/.env, then restart the auth server (the API on port 3003). See /api/meshcentral/debug for which files were found."
-            : r.status === 503 && diag && !diag.hasControlUrl
-              ? " Point MESHCENTRAL_CONFIG_PATH at meshcentral-data/config.json or symlink meshcentral-data next to ready_atomo-forge-suite. See /api/meshcentral/debug."
-              : "";
-        setMeshError(base + extra);
-        return;
-      }
-      setMeshInstallCmd(String(j.linuxInstall || ""));
-      setMeshUninstallCmd(String(j.linuxUninstall || ""));
-      setMeshIdCreated(String(j.meshid || ""));
-      if (typeof j.meshName === "string" && j.meshName) setMeshGroupName(j.meshName);
-    } catch {
-      setMeshError("Network error. Is the API server running on port 3003?");
-    } finally {
-      setMeshLoading(false);
-    }
+    await createMeshGroupByName(name);
   };
 
   const handleDeleteCurrentMeshGroup = async () => {
@@ -278,8 +339,7 @@ const RegistrationScreen = ({
     setMeshDeleteLoading(true);
     setMeshError("");
     try {
-      const u = meshCentralUser.trim();
-      const p = meshCentralPassword;
+      const { u, p } = resolveMeshCredentials();
       const payload: {
         meshid: string;
         meshName: string;
@@ -335,8 +395,7 @@ const RegistrationScreen = ({
     setMeshError("");
     setMeshRunOutput(null);
     try {
-      const u = meshCentralUser.trim();
-      const p = meshCentralPassword;
+      const { u, p } = resolveMeshCredentials();
       const payload: {
         meshid: string;
         action: "install" | "uninstall";
@@ -394,7 +453,7 @@ const RegistrationScreen = ({
 
   return (
     <div className="flex items-center justify-center min-h-screen px-6 py-12">
-      <div className="w-full max-w-lg opacity-0 animate-scale-in">
+      <div className="w-full max-w-2xl opacity-0 animate-scale-in">
         <div className="glass rounded-2xl p-8 md:p-10">
           <div className="flex items-center gap-3 mb-8">
             <div className="w-10 h-10 rounded-xl bg-gradient-atomic flex items-center justify-center">
@@ -412,128 +471,13 @@ const RegistrationScreen = ({
             </div>
           </div>
 
-          <form onSubmit={handleRegister} className="space-y-5">
-            {error && (
-              <div className="px-4 py-2 rounded-lg bg-destructive/10 border border-destructive/30 text-destructive text-sm">
-                {error}
-              </div>
-            )}
-            <div>
-              <label className="block text-sm font-medium text-secondary-foreground mb-2">Device Serial Number</label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="APU-XXXX-XXXX-XXXX"
-                  value={serialNumber}
-                  onChange={(e) => setSerialNumber(e.target.value)}
-                  className="flex-1 px-4 py-3 rounded-lg bg-muted border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all font-mono text-sm"
-                />
-                <button type="button" className="px-4 py-3 rounded-lg border border-border text-sm text-muted-foreground hover:bg-secondary transition-colors">
-                  Auto-detect
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-secondary-foreground mb-2">Device Name</label>
-              <input
-                type="text"
-                placeholder="e.g., Factory Floor Unit 1"
-                value={deviceName}
-                onChange={(e) => setDeviceName(e.target.value)}
-                className="w-full px-4 py-3 rounded-lg bg-muted border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-secondary-foreground mb-2">Organization Name</label>
-              <input
-                type="text"
-                placeholder="Your company or team name"
-                value={organizationName}
-                onChange={(e) => setOrganizationName(e.target.value)}
-                className="w-full px-4 py-3 rounded-lg bg-muted border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-secondary-foreground mb-2">
-                  Email <span className="text-destructive">*</span>
-                </label>
-                <input
-                  type="email"
-                  required
-                  placeholder="admin@company.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full px-4 py-3 rounded-lg bg-muted border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
-                />
-                <p className="text-xs text-muted-foreground mt-1">Must be unique across all registered devices.</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-secondary-foreground mb-2">Phone</label>
-                <input
-                  type="tel"
-                  placeholder="+91 XXXXX XXXXX"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  className="w-full px-4 py-3 rounded-lg bg-muted border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-secondary-foreground mb-2">
-                <MapPin className="w-3.5 h-3.5 inline mr-1" />Location <span className="text-muted-foreground">(Optional)</span>
-              </label>
-              <input
-                type="text"
-                placeholder="City, State"
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                className="w-full px-4 py-3 rounded-lg bg-muted border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
-              />
-            </div>
-
-            <label className="flex items-center gap-3 p-4 rounded-lg bg-muted/50 border border-border cursor-pointer hover:bg-muted transition-colors">
-              <input
-                type="checkbox"
-                checked={cloudSync}
-                onChange={(e) => setCloudSync(e.target.checked)}
-                className="w-4 h-4 rounded accent-primary"
-              />
-              <div>
-                <span className="text-sm font-medium">Activate Cloud Sync</span>
-                <p className="text-xs text-muted-foreground">Enable remote monitoring and analytics</p>
-              </div>
-            </label>
-
-            <div className="pt-2 space-y-3">
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full px-6 py-3.5 rounded-lg bg-gradient-atomic font-semibold text-primary-foreground glow-primary-sm transition-all duration-300 hover:scale-[1.02] disabled:opacity-60 disabled:hover:scale-100"
-              >
-                {loading ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <span className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
-                    Registering...
-                  </span>
-                ) : (
-                  "Register Device"
-                )}
-              </button>
-            </div>
-          </form>
-
-          <div className="mt-8 pt-8 border-t border-border space-y-4">
+          <div className="mb-8 pb-8 border-b border-border space-y-4">
             <div className="flex items-center gap-2">
               <Server className="w-5 h-5 text-muted-foreground" />
               <h3 className="text-lg font-semibold">MeshCentral</h3>
             </div>
             <p className="text-sm text-muted-foreground">
-              Connect with your MeshCentral account, then create a device group. Run executes the install/uninstall on the machine that hosts the auth API (Linux). Copy-paste is for other machines.
+              Set up MeshCentral first (uses your login). Run executes the install/uninstall on the machine that hosts the auth API (Linux). Copy-paste is for other machines.
             </p>
 
             {meshStatus === null && (
@@ -553,7 +497,7 @@ const RegistrationScreen = ({
               </p>
             )}
 
-            {meshWizardPhase === "login" && (
+            {meshWizardPhase === "login" && (!loggedInMeshUser || meshShowManualSignIn) && (
               <div className="space-y-4 rounded-xl border border-border bg-muted/20 p-4 md:p-5">
                 <div>
                   <h4 className="text-sm font-semibold text-foreground">Step 1 — MeshCentral sign-in</h4>
@@ -637,17 +581,45 @@ const RegistrationScreen = ({
 
             {meshWizardPhase === "devices" && (
               <div className="space-y-5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMeshError("");
-                    setMeshWizardPhase("login");
-                  }}
-                  className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                  Change sign-in
-                </button>
+                {loggedInMeshUser ? (
+                  <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
+                    Signed in as{" "}
+                    <span className="font-mono font-medium text-foreground">@{loggedInMeshUser}</span>
+                    {meshStatus?.serverProvisionConfigured
+                      ? " — MeshCentral groups use server provisioning (no second sign-in)."
+                      : meshCentralPassword
+                        ? " — using the same credentials as your login."
+                        : "."}
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMeshError("");
+                      setMeshWizardPhase("login");
+                    }}
+                    className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    Change sign-in
+                  </button>
+                )}
+
+                {loggedInMeshUser && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMeshError("");
+                      clearMeshLoginCredential();
+                      setMeshCentralPassword("");
+                      setMeshShowManualSignIn(true);
+                      setMeshWizardPhase("login");
+                    }}
+                    className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors -mt-2"
+                  >
+                    Use a different MeshCentral account
+                  </button>
+                )}
 
                 <div className="rounded-xl border border-border bg-muted/20 p-4 md:p-5 space-y-4">
                   <div className="flex items-start gap-3">
@@ -823,6 +795,123 @@ const RegistrationScreen = ({
               </div>
             )}
           </div>
+
+          <form onSubmit={handleRegister} className="space-y-5">
+            {error && (
+              <div className="px-4 py-2 rounded-lg bg-destructive/10 border border-destructive/30 text-destructive text-sm">
+                {error}
+              </div>
+            )}
+            <div>
+              <label className="block text-sm font-medium text-secondary-foreground mb-2">Device Serial Number</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="APU-XXXX-XXXX-XXXX"
+                  value={serialNumber}
+                  onChange={(e) => setSerialNumber(e.target.value)}
+                  className="flex-1 px-4 py-3 rounded-lg bg-muted border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all font-mono text-sm"
+                />
+                <button type="button" className="px-4 py-3 rounded-lg border border-border text-sm text-muted-foreground hover:bg-secondary transition-colors">
+                  Auto-detect
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-secondary-foreground mb-2">Device Name</label>
+              <input
+                type="text"
+                placeholder="e.g., Factory Floor Unit 1"
+                value={deviceName}
+                onChange={(e) => setDeviceName(e.target.value)}
+                className="w-full px-4 py-3 rounded-lg bg-muted border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-secondary-foreground mb-2">Organization Name</label>
+              <input
+                type="text"
+                placeholder="Your company or team name"
+                value={organizationName}
+                onChange={(e) => setOrganizationName(e.target.value)}
+                className="w-full px-4 py-3 rounded-lg bg-muted border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-secondary-foreground mb-2">
+                  Email <span className="text-destructive">*</span>
+                </label>
+                <input
+                  type="email"
+                  required
+                  placeholder="admin@company.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full px-4 py-3 rounded-lg bg-muted border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
+                />
+                <p className="text-xs text-muted-foreground mt-1">Must be unique across all registered devices.</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-secondary-foreground mb-2">Phone</label>
+                <input
+                  type="tel"
+                  placeholder="+91 XXXXX XXXXX"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="w-full px-4 py-3 rounded-lg bg-muted border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-secondary-foreground mb-2">
+                <MapPin className="w-3.5 h-3.5 inline mr-1" />Location <span className="text-muted-foreground">(Optional)</span>
+              </label>
+              <input
+                type="text"
+                placeholder="City, State"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                className="w-full px-4 py-3 rounded-lg bg-muted border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
+              />
+            </div>
+
+            <label className="flex items-center gap-3 p-4 rounded-lg bg-muted/50 border border-border cursor-pointer hover:bg-muted transition-colors">
+              <input
+                type="checkbox"
+                checked={cloudSync}
+                onChange={(e) => setCloudSync(e.target.checked)}
+                className="w-4 h-4 rounded accent-primary"
+              />
+              <div>
+                <span className="text-sm font-medium">Activate Cloud Sync</span>
+                <p className="text-xs text-muted-foreground">Enable remote monitoring and analytics</p>
+              </div>
+            </label>
+
+            <div className="pt-2 space-y-3">
+              <button
+                type="submit"
+                disabled={loading || meshLoading}
+                className="w-full px-6 py-3.5 rounded-lg bg-gradient-atomic font-semibold text-primary-foreground glow-primary-sm transition-all duration-300 hover:scale-[1.02] disabled:opacity-60 disabled:hover:scale-100"
+              >
+                {loading ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
+                    Registering...
+                  </span>
+                ) : meshLoading ? (
+                  "Setting up MeshCentral…"
+                ) : (
+                  "Register Device"
+                )}
+              </button>
+            </div>
+          </form>
         </div>
       </div>
 

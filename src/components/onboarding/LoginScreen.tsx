@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { Cpu } from "lucide-react";
 import { authApiUrl } from "@/services/authApiUrl";
+import { persistMeshLoginCredential } from "@/services/authSession";
 
 interface LoginScreenProps {
   onGetStarted: () => void;
@@ -17,7 +18,7 @@ type ApiErrorPayload = {
 
 const LoginScreen = ({ onGetStarted, onLoginSuccess }: LoginScreenProps) => {
   /** MeshCentral web UI URL (Create account link uses this). */
-  const defaultMeshCentralBaseUrl = "https://192.168.1.30:4434";
+  const defaultMeshCentralBaseUrl = "https://65.2.142.160:4434";
 
   const [meshCentralUrlFromApi, setMeshCentralUrlFromApi] = useState<string | null>(null);
 
@@ -97,6 +98,7 @@ const LoginScreen = ({ onGetStarted, onLoginSuccess }: LoginScreenProps) => {
         setLoading(false);
         return;
       }
+      persistMeshLoginCredential(normalizedUser, password);
       if (onLoginSuccess) onLoginSuccess(normalizedUser);
       else onGetStarted();
     } catch {

@@ -14,4 +14,5 @@ if [[ -f "$REPO_ROOT/.env" ]]; then
   set +a
 fi
 export MQTT_DISABLED="${MQTT_DISABLED:-1}"
+export DETECTION_SOURCE="${DETECTION_SOURCE:-json}"
 exec node server.js

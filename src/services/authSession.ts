@@ -6,6 +6,8 @@
 
 const LEGACY_FLAG = "atomo_logged_in";
 const SESSION_KEY = "atomo-forge:session:v1";
+/** Tab-scoped MeshCentral web password from /login (avoid re-prompting on /register). */
+const MESH_CREDS_KEY = "atomo-forge:mesh-creds:v1";
 
 type StoredSession = { username: string | null };
 
@@ -66,6 +68,7 @@ export function persistForgeSession(meshUsername?: string | null): void {
 
 export function clearForgeSession(): void {
   legacyCleanup();
+  clearMeshLoginCredential();
   try {
     localStorage.removeItem(SESSION_KEY);
   } catch {
@@ -73,6 +76,41 @@ export function clearForgeSession(): void {
   }
   try {
     sessionStorage.removeItem(SESSION_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Remember MeshCentral web password for this browser tab after Forge login. */
+export function persistMeshLoginCredential(meshUsername: string, password: string): void {
+  const username = normalizeStoredUsername(meshUsername);
+  if (!username || !password) return;
+  try {
+    sessionStorage.setItem(MESH_CREDS_KEY, JSON.stringify({ username, password }));
+  } catch {
+    /* private mode / quota */
+  }
+}
+
+/** Credentials saved at login for the current tab, if any. */
+export function readMeshLoginCredential(): { username: string; password: string } | null {
+  try {
+    const raw = sessionStorage.getItem(MESH_CREDS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return null;
+    const username = normalizeStoredUsername((parsed as { username?: unknown }).username as string);
+    const password = String((parsed as { password?: unknown }).password ?? "");
+    if (!username || !password) return null;
+    return { username, password };
+  } catch {
+    return null;
+  }
+}
+
+export function clearMeshLoginCredential(): void {
+  try {
+    sessionStorage.removeItem(MESH_CREDS_KEY);
   } catch {
     /* ignore */
   }

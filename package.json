@@ -5,8 +5,10 @@
   "type": "module",
   "scripts": {
     "postinstall": "node scripts/install-pdeu-digital-twin.cjs",
-    "dev": "concurrently -k -n tunnel,api,twin,web -c yellow,cyan,green,magenta \"bash scripts/mysql-tunnel-to-ec2.sh\" \"node auth-server.cjs\" \"node scripts/start-pdeu-digital-twin.cjs\" \"vite\"",
-    "dev:no-tunnel": "concurrently -k -n api,twin,web -c cyan,green,magenta \"node auth-server.cjs\" \"node scripts/start-pdeu-digital-twin.cjs\" \"vite\"",
+    "dev": "concurrently -k -n tunnel,api,twin,detect,mtx,web -c yellow,cyan,green,red,blue,magenta \"bash scripts/mysql-tunnel-to-ec2.sh\" \"node auth-server.cjs\" \"node scripts/start-pdeu-digital-twin.cjs\" \"node scripts/start-combine-detector.cjs\" \"node scripts/start-mediamtx.cjs\" \"vite\"",
+    "dev:no-tunnel": "concurrently -k -n api,twin,detect,mtx,web -c cyan,green,red,blue,magenta \"node auth-server.cjs\" \"node scripts/start-pdeu-digital-twin.cjs\" \"node scripts/start-combine-detector.cjs\" \"node scripts/start-mediamtx.cjs\" \"vite\"",
+    "combine:start": "node scripts/start-combine-detector.cjs",
+    "mediamtx:start": "node scripts/start-mediamtx.cjs",
     "mysql:tunnel": "bash scripts/mysql-tunnel-to-ec2.sh",
     "migrate": "node scripts/db-migrate.cjs",
     "twin:install": "node scripts/install-pdeu-digital-twin.cjs",
