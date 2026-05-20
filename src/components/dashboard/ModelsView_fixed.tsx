@@ -17,7 +17,6 @@ const ModelsView = () => {
   const [rtspUrl, setRtspUrl] = useState("");
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [query, setQuery] = useState("");
-
   const [runState, setRunState] = useState<"idle" | "starting" | "running">("idle");
   const [runError, setRunError] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -31,17 +30,16 @@ const ModelsView = () => {
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const frameImgRef = useRef<HTMLImageElement | null>(null);
-
-  const [frameStats, setFrameStats] = useState<{ fps?: number; inference_ms?: number; frame?: number } | null>(null);
   const pendingFrameRef = useRef<{ jpeg: string | null; dets: Detection[] } | null>(null);
   const rafRef = useRef<number | null>(null);
   const lastRenderAtRef = useRef(0);
   const lastStatsAtRef = useRef(0);
 
+  const [frameStats, setFrameStats] = useState<{ fps?: number; inference_ms?: number; frame?: number } | null>(null);
+
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
-
   const folderInputRef = useRef<HTMLInputElement | null>(null);
 
   const selectedModel = selected ? models.find((m) => m.id === selected) : undefined;
@@ -56,6 +54,7 @@ const ModelsView = () => {
 
     const hasNb = files.some((f) => f.name.endsWith(".nb"));
     const hasSo = files.some((f) => f.name.endsWith(".so"));
+
     if (!hasNb || !hasSo) {
       setUploadError(`"${folderName}" mein .nb aur .so dono files honi chahiye`);
       if (folderInputRef.current) folderInputRef.current.value = "";
@@ -73,11 +72,7 @@ const ModelsView = () => {
         fd.append("files", renamedFile);
       }
 
-      const res = await fetch("/universal/api/models/upload-folder", {
-        method: "POST",
-        body: fd,
-      });
-
+      const res = await fetch("/universal/api/models/upload-folder", { method: "POST", body: fd });
       const data = (await res.json()) as { ok?: boolean; folderName?: string; error?: string };
       if (!res.ok || !data.ok) throw new Error(data.error || "Upload failed");
 
@@ -99,7 +94,6 @@ const ModelsView = () => {
     detections.forEach((d) => {
       if (!d?.box || d.box.length !== 4) return;
       const [x1n, y1n, x2n, y2n] = d.box;
-
       const x1 = x1n * W;
       const y1 = y1n * H;
       const x2 = x2n * W;
@@ -128,7 +122,6 @@ const ModelsView = () => {
       const padY = 4;
       const tw = ctx.measureText(label).width;
       const th = 14;
-
       const lx = Math.max(0, Math.min(W - (tw + padX * 2), x1));
       const ly = Math.max(th + 2, y1);
 
@@ -142,7 +135,6 @@ const ModelsView = () => {
   const renderFrameToCanvas = (jpegB64: string | null, detections: Detection[]) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
@@ -194,7 +186,6 @@ const ModelsView = () => {
   const scheduleRender = () => {
     const MAX_FPS = 15;
     const minDt = 1000 / MAX_FPS;
-
     const now = performance.now();
     if (now - lastRenderAtRef.current < minDt) return;
     lastRenderAtRef.current = now;
@@ -211,7 +202,6 @@ const ModelsView = () => {
 
   const connectWsAndStart = async (sid: string) => {
     stopWs();
-
     setRunStatus("connecting");
     setLastLog(null);
     setFrameStats(null);
@@ -228,6 +218,7 @@ const ModelsView = () => {
     renderFrameToCanvas(null, []);
 
     const wsCandidates: string[] = [];
+
     {
       const proto = window.location.protocol === "https:" ? "wss" : "ws";
       wsCandidates.push(`${proto}://${window.location.host}/universal`);
@@ -244,7 +235,7 @@ const ModelsView = () => {
           u.hash = "";
           wsCandidates.push(u.toString().replace(/\/$/, ""));
         } catch {
-          // ignore invalid URL
+          // ignore
         }
       }
     }
@@ -259,7 +250,6 @@ const ModelsView = () => {
 
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
-
       let opened = false;
 
       ws.onopen = () => {
@@ -327,7 +317,6 @@ const ModelsView = () => {
 
   const startInference = async (source: InputSource) => {
     if (!selectedModel) return;
-
     if (sessionIdRef.current) {
       await stopInference();
     }
@@ -357,7 +346,6 @@ const ModelsView = () => {
         fd.append("file", videoFile);
         const uploadRes = await fetch("/universal/api/upload", { method: "POST", body: fd });
         if (!uploadRes.ok) throw new Error(`Upload failed (${uploadRes.status})`);
-
         const uploadData = (await uploadRes.json()) as { path?: string };
         if (!uploadData.path) throw new Error("Upload response missing file path");
         inputValue = uploadData.path;
@@ -519,7 +507,9 @@ const ModelsView = () => {
             Loading models from Universal Model Detection Dashboard…
           </div>
         )}
-        {error && <div className="text-xs text-destructive bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2">{error}</div>}
+        {error && (
+          <div className="text-xs text-destructive bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2">{error}</div>
+        )}
         {uploadError && (
           <div className="text-xs text-destructive bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2 flex items-center justify-between">
             <span>{uploadError}</span>
@@ -579,7 +569,6 @@ const ModelsView = () => {
                       const active = selected === m.id;
                       const subtitle = m.classes?.length ? `${m.classes.length} classes` : m.yaml ? "data.yaml" : "—";
                       const Icon = m.icon;
-
                       return (
                         <button
                           key={m.id}
@@ -658,9 +647,7 @@ const ModelsView = () => {
                         <div className="text-xs text-muted-foreground">Pick where the frames come from.</div>
                       </div>
                       {inputSource ? (
-                        <div className="text-xs text-muted-foreground">
-                          Opened: <span className="font-medium text-foreground">{inputSource.toUpperCase()}</span>
-                        </div>
+                        <div className="text-xs text-muted-foreground">Opened: <span className="font-medium text-foreground">{inputSource.toUpperCase()}</span></div>
                       ) : (
                         <div className="text-xs text-muted-foreground">None selected</div>
                       )}
@@ -725,9 +712,7 @@ const ModelsView = () => {
                         <canvas ref={canvasRef} className="max-h-[420px] w-full" />
                       </div>
                       {runState !== "running" && (
-                        <div className="p-4 text-xs text-muted-foreground">
-                          Start a session to see frames here (Universal sends frames via WebSocket as base64 JPEG).
-                        </div>
+                        <div className="p-4 text-xs text-muted-foreground">Start a session to see frames here (Universal sends frames via WebSocket as base64 JPEG).</div>
                       )}
                     </div>
 
@@ -803,9 +788,7 @@ const ModelsView = () => {
                               onChange={(e) => setVideoFile(e.target.files?.[0] ?? null)}
                               className="w-full text-sm"
                             />
-                            {videoFile && (
-                              <div className="mt-2 text-xs text-muted-foreground">Selected: {videoFile.name}</div>
-                            )}
+                            {videoFile && <div className="mt-2 text-xs text-muted-foreground">Selected: {videoFile.name}</div>}
                           </div>
                           <button
                             onClick={() => startInference("video")}

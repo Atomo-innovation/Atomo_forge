@@ -33,7 +33,7 @@ import {
   getDeviceProfile,
   setDeviceProfile,
 } from "@/services/deviceProfile";
-import { deviceProfileFromRegistrationRow, fetchDeviceRegistrations, type RegistrationRow } from "@/services/deviceRegistrations";
+import { deviceProfileFromRegistrationRow, fetchDeviceRegistrations, type RegistrationRow, type FetchRegistrationsErr } from "@/services/deviceRegistrations";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -132,8 +132,6 @@ function persistLayout(order: PanelId[], spans: Record<PanelId, WidthMode>) {
 
 const ANALYTICS_STATS = [
   { icon: Target, label: "Total Detections", value: "24,891", sub: "+12% today", color: "text-primary", bg: "bg-primary/10" },
-  { icon: TrendingUp, label: "Avg Confidence", value: "96.4%", sub: "+0.3% vs yesterday", color: "text-accent", bg: "bg-accent/10" },
-  { icon: Clock, label: "Avg Inference", value: "8.1ms", sub: "Within target", color: "text-success", bg: "bg-success/10" },
   { icon: BarChart3, label: "Alerts Today", value: "17", sub: "3 critical", color: "text-warning", bg: "bg-warning/10" },
 ] as const;
 
@@ -265,7 +263,7 @@ const DashboardHome = ({ cameras, onAddCamera, onUpdateCamera, onViewCamera, onO
     try {
       const result = await fetchDeviceRegistrations(meshUsername, profileEmail);
       if (!result.ok) {
-        setRegError(result.error);
+        setRegError((result as FetchRegistrationsErr).error);
         setRegDevices([]);
         return;
       }

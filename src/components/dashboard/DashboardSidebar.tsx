@@ -15,7 +15,7 @@ const navItems: { id: DashboardView; label: string; icon: React.ElementType }[] 
   { id: "home", label: "Overview", icon: LayoutDashboard },
   { id: "twin", label: "Twin", icon: Box },
   { id: "cameras", label: "Person", icon: User },
-  { id: "cameras2", label: "Fire & Smoke", icon: Flame },
+  { id: "cameras2", label: "Fire", icon: Flame },
   { id: "cameras3", label: "Face recognition", icon: ScanFace },
   { id: "cameras4", label: "Safety", icon: Shield },
   { id: "events", label: "Events", icon: Bell },

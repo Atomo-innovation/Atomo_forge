@@ -3,13 +3,7 @@ import { Brain, Zap, Download, Camera, Wifi, Video, Plus, X } from "lucide-react
 import { useModels } from "@/hooks/useModels";
 
 type InputSource = "webcam" | "rtsp" | "video";
-
-type Detection = {
-  class_id?: number;
-  class_name?: string;
-  score?: number;
-  box: [number, number, number, number];
-};
+type Detection = { class_id?: number; class_name?: string; score?: number; box: [number, number, number, number] };
 
 const ModelsView = () => {
   const [selected, setSelected] = useState<string | null>(null);
@@ -17,21 +11,16 @@ const ModelsView = () => {
   const [rtspUrl, setRtspUrl] = useState("");
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [query, setQuery] = useState("");
-
   const [runState, setRunState] = useState<"idle" | "starting" | "running">("idle");
   const [runError, setRunError] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [runStatus, setRunStatus] = useState<string | null>(null);
   const [lastLog, setLastLog] = useState<string | null>(null);
-
   const { models, loading, error } = useModels();
-
   const wsRef = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef<string | null>(null);
-
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const frameImgRef = useRef<HTMLImageElement | null>(null);
-
   const [frameStats, setFrameStats] = useState<{ fps?: number; inference_ms?: number; frame?: number } | null>(null);
   const pendingFrameRef = useRef<{ jpeg: string | null; dets: Detection[] } | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -41,24 +30,22 @@ const ModelsView = () => {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
-
   const folderInputRef = useRef<HTMLInputElement | null>(null);
 
   const selectedModel = selected ? models.find((m) => m.id === selected) : undefined;
-  const SelectedModelIcon = selectedModel?.icon;
 
   const handleFolderSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
 
     const firstPath = (files[0] as any).webkitRelativePath as string;
-    const folderName = firstPath.split("/")[0];
+    const folderName = firstPath.split('/')[0];
 
-    const hasNb = files.some((f) => f.name.endsWith(".nb"));
-    const hasSo = files.some((f) => f.name.endsWith(".so"));
+    const hasNb = files.some(f => f.name.endsWith('.nb'));
+    const hasSo = files.some(f => f.name.endsWith('.so'));
     if (!hasNb || !hasSo) {
       setUploadError(`"${folderName}" mein .nb aur .so dono files honi chahiye`);
-      if (folderInputRef.current) folderInputRef.current.value = "";
+      if (folderInputRef.current) folderInputRef.current.value = '';
       return;
     }
 
@@ -70,24 +57,24 @@ const ModelsView = () => {
       const fd = new FormData();
       for (const file of files) {
         const renamedFile = new File([file], `${folderName}__SEP__${file.name}`, { type: file.type });
-        fd.append("files", renamedFile);
+        fd.append('files', renamedFile);
       }
 
-      const res = await fetch("/universal/api/models/upload-folder", {
-        method: "POST",
+      const res = await fetch('/universal/api/models/upload-folder', {
+        method: 'POST',
         body: fd,
       });
 
-      const data = (await res.json()) as { ok?: boolean; folderName?: string; error?: string };
-      if (!res.ok || !data.ok) throw new Error(data.error || "Upload failed");
+      const data = await res.json() as { ok?: boolean; folderName?: string; error?: string };
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Upload failed');
 
       setUploadSuccess(`✓ "${data.folderName}" model successfully loaded!`);
       setTimeout(() => setUploadSuccess(null), 4000);
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : "Upload failed");
+      setUploadError(err instanceof Error ? err.message : 'Upload failed');
     } finally {
       setUploading(false);
-      if (folderInputRef.current) folderInputRef.current.value = "";
+      if (folderInputRef.current) folderInputRef.current.value = '';
     }
   };
 
@@ -95,16 +82,13 @@ const ModelsView = () => {
     const canvas = ctx.canvas;
     const W = canvas.width;
     const H = canvas.height;
-
     detections.forEach((d) => {
       if (!d?.box || d.box.length !== 4) return;
       const [x1n, y1n, x2n, y2n] = d.box;
-
       const x1 = x1n * W;
       const y1 = y1n * H;
       const x2 = x2n * W;
       const y2 = y2n * H;
-
       const bw = x2 - x1;
       const bh = y2 - y1;
 
@@ -119,19 +103,14 @@ const ModelsView = () => {
       ctx.fillStyle = "rgba(59,130,246,0.08)";
       ctx.fillRect(x1, y1, bw, bh);
 
-      const label = `${d.class_name ?? `cls:${d.class_id ?? "?"}`}${
-        typeof d.score === "number" ? ` ${(d.score * 100).toFixed(1)}%` : ""
-      }`;
-
+      const label = `${d.class_name ?? `cls:${d.class_id ?? "?"}`}${typeof d.score === "number" ? ` ${(d.score * 100).toFixed(1)}%` : ""}`;
       ctx.font = "12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace";
       const padX = 6;
       const padY = 4;
       const tw = ctx.measureText(label).width;
       const th = 14;
-
       const lx = Math.max(0, Math.min(W - (tw + padX * 2), x1));
       const ly = Math.max(th + 2, y1);
-
       ctx.fillStyle = "rgba(17,24,39,0.85)";
       ctx.fillRect(lx, ly - th - padY, tw + padX * 2, th + padY);
       ctx.fillStyle = "rgba(255,255,255,0.95)";
@@ -142,7 +121,6 @@ const ModelsView = () => {
   const renderFrameToCanvas = (jpegB64: string | null, detections: Detection[]) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
@@ -168,7 +146,6 @@ const ModelsView = () => {
       ctx.drawImage(img!, 0, 0);
       drawBoxes(ctx, detections);
     };
-
     img.src = `data:image/jpeg;base64,${jpegB64}`;
   };
 
@@ -194,13 +171,10 @@ const ModelsView = () => {
   const scheduleRender = () => {
     const MAX_FPS = 15;
     const minDt = 1000 / MAX_FPS;
-
     const now = performance.now();
     if (now - lastRenderAtRef.current < minDt) return;
     lastRenderAtRef.current = now;
-
     if (rafRef.current != null) return;
-
     rafRef.current = window.requestAnimationFrame(() => {
       rafRef.current = null;
       const p = pendingFrameRef.current;
@@ -211,20 +185,16 @@ const ModelsView = () => {
 
   const connectWsAndStart = async (sid: string) => {
     stopWs();
-
     setRunStatus("connecting");
     setLastLog(null);
     setFrameStats(null);
-
     pendingFrameRef.current = { jpeg: null, dets: [] };
     lastRenderAtRef.current = 0;
     lastStatsAtRef.current = 0;
-
     if (rafRef.current != null) {
       window.cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
     }
-
     renderFrameToCanvas(null, []);
 
     const wsCandidates: string[] = [];
@@ -232,7 +202,6 @@ const ModelsView = () => {
       const proto = window.location.protocol === "https:" ? "wss" : "ws";
       wsCandidates.push(`${proto}://${window.location.host}/universal`);
     }
-
     {
       const envBase = (import.meta as any).env?.VITE_UNIVERSAL_MODEL_DASHBOARD_URL as string | undefined;
       if (envBase && typeof envBase === "string") {
@@ -259,7 +228,6 @@ const ModelsView = () => {
 
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
-
       let opened = false;
 
       ws.onopen = () => {
@@ -327,11 +295,9 @@ const ModelsView = () => {
 
   const startInference = async (source: InputSource) => {
     if (!selectedModel) return;
-
     if (sessionIdRef.current) {
       await stopInference();
     }
-
     setRunError(null);
     setRunState("starting");
     setSessionId(null);
@@ -357,7 +323,6 @@ const ModelsView = () => {
         fd.append("file", videoFile);
         const uploadRes = await fetch("/universal/api/upload", { method: "POST", body: fd });
         if (!uploadRes.ok) throw new Error(`Upload failed (${uploadRes.status})`);
-
         const uploadData = (await uploadRes.json()) as { path?: string };
         if (!uploadData.path) throw new Error("Upload response missing file path");
         inputValue = uploadData.path;
@@ -382,7 +347,7 @@ const ModelsView = () => {
         throw new Error(`Inference start failed (${res.status})${text ? `: ${text}` : ""}`);
       }
 
-      const data = (await res.json()) as { sessionId?: string; error?: string };
+      const data = (await res.json()) as { sessionId?: string; command?: string; error?: string };
       if (!data.sessionId) throw new Error(data.error || "Inference start response missing sessionId");
 
       setSessionId(data.sessionId);
@@ -397,7 +362,6 @@ const ModelsView = () => {
 
   const stopInference = async () => {
     const sid = sessionIdRef.current;
-
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN && sid) {
       try {
@@ -406,9 +370,7 @@ const ModelsView = () => {
         // ignore
       }
     }
-
     stopWs();
-
     setRunState("idle");
     setRunStatus(null);
     setFrameStats(null);
@@ -416,12 +378,10 @@ const ModelsView = () => {
     pendingFrameRef.current = { jpeg: null, dets: [] };
     lastRenderAtRef.current = 0;
     lastStatsAtRef.current = 0;
-
     if (rafRef.current != null) {
       window.cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
     }
-
     renderFrameToCanvas(null, []);
 
     if (!sid) return;
@@ -437,7 +397,7 @@ const ModelsView = () => {
     const npuOptimized = models.filter((m) => m.id !== "custom" && m.npuOptimized).length;
     const activeDeployments = selected && selected !== "custom" ? 1 : 0;
     return { available, npuOptimized, activeDeployments };
-  }, [models, selected]);
+  }, [selected]);
 
   const filteredModels = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -449,7 +409,8 @@ const ModelsView = () => {
   }, [models, query]);
 
   return (
-    <div className="h-screen flex flex-col animate-fade-in bg-background">
+    <div className="h-screen flex flex-col bg-background animate-fade-in">
+      {/* Header */}
       <div className="border-b border-border/60 bg-card/50 backdrop-blur-sm sticky top-0 z-10 px-6 py-4">
         <div className="max-w-[1600px] mx-auto flex items-center justify-between">
           <div>
@@ -478,6 +439,7 @@ const ModelsView = () => {
         </div>
       </div>
 
+      {/* Stats Bar */}
       <div className="border-b border-border/60 bg-muted/20 px-6 py-3">
         <div className="max-w-[1600px] mx-auto">
           <div className="grid grid-cols-3 gap-4">
@@ -512,20 +474,19 @@ const ModelsView = () => {
         </div>
       </div>
 
+      {/* Alerts */}
       <div className="px-6 py-3 space-y-2 max-w-[1600px] mx-auto w-full">
         {loading && (
           <div className="text-xs text-muted-foreground bg-muted/30 border border-border/40 rounded-lg px-3 py-2 flex items-center gap-2">
             <div className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse" />
-            Loading models from Universal Model Detection Dashboard…
+            Loading models…
           </div>
         )}
         {error && <div className="text-xs text-destructive bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2">{error}</div>}
         {uploadError && (
           <div className="text-xs text-destructive bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2 flex items-center justify-between">
             <span>{uploadError}</span>
-            <button onClick={() => setUploadError(null)} className="ml-2 hover:text-destructive/70">
-              <X className="w-3 h-3" />
-            </button>
+            <button onClick={() => setUploadError(null)} className="ml-2 hover:text-destructive/70"><X className="w-3 h-3" /></button>
           </div>
         )}
         {uploadSuccess && (
@@ -545,41 +506,35 @@ const ModelsView = () => {
         )}
         {(runStatus || lastLog) && (
           <div className="text-xs text-muted-foreground bg-muted/30 border border-border/40 rounded-lg px-3 py-2 space-y-1">
-            {runStatus && (
-              <div>
-                Status: <span className="font-mono text-foreground">{runStatus}</span>
-              </div>
-            )}
+            {runStatus && <div>Status: <span className="font-mono text-foreground">{runStatus}</span></div>}
             {lastLog && <div className="font-mono text-[11px] truncate">Log: {lastLog}</div>}
           </div>
         )}
       </div>
 
+      {/* Main Layout */}
       <div className="flex-1 min-h-0 px-6 py-4 overflow-auto">
         <div className="max-w-[1600px] mx-auto h-full">
-          <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-6 h-full">
+          <div className="grid grid-cols-1 lg:grid-cols-[350px_1fr] gap-6 h-full">
+            {/* Left: Model List */}
             <div className="flex flex-col min-h-0 bg-surface rounded-xl border border-border overflow-hidden">
               <div className="p-4 border-b border-border bg-muted/30">
                 <div className="text-sm font-semibold mb-3">Models</div>
                 <input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search models…"
-                  className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
+                  placeholder="Search…"
+                  className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
                 />
-                <div className="text-xs text-muted-foreground mt-2">
-                  {filteredModels.length} of {models.length} models
-                </div>
+                <div className="text-xs text-muted-foreground mt-2">{filteredModels.length} / {models.length}</div>
               </div>
 
-              <div className="flex-1 min-h-0 overflow-auto">
+              <div className="flex-1 min-h-0 overflow-y-auto">
                 {filteredModels.length > 0 ? (
                   <div className="p-3 space-y-2">
                     {filteredModels.map((m) => {
                       const active = selected === m.id;
                       const subtitle = m.classes?.length ? `${m.classes.length} classes` : m.yaml ? "data.yaml" : "—";
-                      const Icon = m.icon;
-
                       return (
                         <button
                           key={m.id}
@@ -592,17 +547,15 @@ const ModelsView = () => {
                             setRunError(null);
                             setRunState("idle");
                           }}
-                          className={`w-full p-3 rounded-lg border text-left transition-all duration-150 text-sm ${
-                            active
-                              ? "border-primary bg-primary/15 glow-primary-sm"
-                              : "border-border bg-muted/40 hover:border-primary/40 hover:bg-muted/60"
+                          className={`w-full p-3 rounded-lg border text-left transition-all text-sm ${
+                            active ? "border-primary bg-primary/15 glow-primary-sm" : "border-border bg-muted/40 hover:border-primary/40 hover:bg-muted/60"
                           }`}
                         >
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-1.5">
-                                {Icon ? <Icon className={`w-4 h-4 shrink-0 ${active ? "text-primary" : "text-muted-foreground"}`} /> : null}
-                                <div className="font-semibold truncate text-sm">{m.name}</div>
+                                <m.icon className={`w-4 h-4 shrink-0 ${active ? "text-primary" : "text-muted-foreground"}`} />
+                                <div className="font-semibold truncate">{m.name}</div>
                               </div>
                               <div className="mt-1 text-xs text-muted-foreground truncate">{m.id}</div>
                             </div>
@@ -618,220 +571,112 @@ const ModelsView = () => {
                     })}
                   </div>
                 ) : (
-                  <div className="p-6 text-center text-sm text-muted-foreground">No models match your search.</div>
+                  <div className="p-6 text-center text-sm text-muted-foreground">No models match</div>
                 )}
               </div>
             </div>
 
-            <div className="flex flex-col min-h-0 gap-4">
-              {!selectedModel ? (
-                <div className="h-full flex flex-col items-center justify-center text-center py-16">
-                  <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mb-3">
-                    <Brain className="w-6 h-6 text-primary" />
-                  </div>
-                  <div className="text-lg font-semibold">Select a model</div>
-                  <div className="text-sm text-muted-foreground mt-1 max-w-md">
-                    Choose a model from the left list to view its folder and open an input source (Webcam, RTSP, or Video).
+            {/* Right: Canvas + Controls */}
+            <div className="flex flex-col gap-4 min-h-0">
+              {/* Canvas */}
+              <div className="flex-[2] bg-surface rounded-xl border border-border overflow-hidden flex flex-col">
+                <div className="px-4 py-3 border-b border-border bg-muted/30 flex items-center justify-between">
+                  <div className="text-sm font-semibold">Detection Preview</div>
+                  <div className="text-xs text-muted-foreground font-mono">
+                    {frameStats?.fps ? `${frameStats.fps.toFixed(1)} FPS` : "—"} • {typeof frameStats?.inference_ms === "number" ? `${frameStats.inference_ms.toFixed(1)}ms` : "—"}
                   </div>
                 </div>
-              ) : (
-                <div className="space-y-6">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        {SelectedModelIcon ? <SelectedModelIcon className="w-6 h-6 text-primary" /> : null}
-                        <div className="text-xl font-bold truncate">{selectedModel?.name}</div>
-                        {selectedModel?.npuOptimized && (
-                          <span className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-medium bg-accent/10 text-accent border border-accent/20">
-                            <Zap className="w-3 h-3" /> NPU
-                          </span>
-                        )}
-                      </div>
-                      <div className="mt-1 text-xs text-muted-foreground break-all">{selectedModel.id}</div>
+                <div className="flex-1 min-h-0 bg-muted/20 flex items-center justify-center">
+                  {!selectedModel ? (
+                    <div className="text-center text-muted-foreground">
+                      <Brain className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                      <p className="text-sm">Select a model</p>
                     </div>
-                  </div>
+                  ) : (
+                    <canvas ref={canvasRef} className="max-w-full max-h-full" />
+                  )}
+                </div>
+              </div>
 
-                  <div>
-                    <div className="flex items-center justify-between mb-3">
+              {/* Controls */}
+              <div className="flex-1 bg-surface rounded-xl border border-border p-4 overflow-y-auto">
+                {!selectedModel ? (
+                  <div className="text-center text-muted-foreground text-sm">Select a model</div>
+                ) : (
+                  <div className="space-y-4">
+                    <div>
+                      <div className="text-sm font-semibold mb-2">Input Source</div>
+                      <div className="grid grid-cols-3 gap-2">
+                        {[
+                          { id: "webcam", label: "Webcam", icon: Camera },
+                          { id: "rtsp", label: "RTSP", icon: Wifi },
+                          { id: "video", label: "Video", icon: Video },
+                        ].map(({ id, label, icon: Icon }) => (
+                          <button
+                            key={id}
+                            onClick={() => setInputSource(id as InputSource)}
+                            className={`p-2 rounded-lg border text-xs font-medium transition-all ${
+                              inputSource === id
+                                ? "border-primary bg-primary/15 text-foreground"
+                                : "border-border bg-muted/40 text-muted-foreground hover:border-primary/40"
+                            }`}
+                          >
+                            <Icon className="w-3.5 h-3.5 mx-auto mb-1" />
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {inputSource === "rtsp" && (
                       <div>
-                        <div className="text-sm font-semibold">Input source</div>
-                        <div className="text-xs text-muted-foreground">Pick where the frames come from.</div>
+                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">RTSP URL</label>
+                        <input
+                          value={rtspUrl}
+                          onChange={(e) => setRtspUrl(e.target.value)}
+                          placeholder="rtsp://user:pass@ip:554/stream"
+                          className="w-full px-3 py-2 rounded-lg bg-muted border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                        />
                       </div>
-                      {inputSource ? (
-                        <div className="text-xs text-muted-foreground">
-                          Opened: <span className="font-medium text-foreground">{inputSource.toUpperCase()}</span>
-                        </div>
-                      ) : (
-                        <div className="text-xs text-muted-foreground">None selected</div>
-                      )}
-                    </div>
+                    )}
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    {inputSource === "video" && (
+                      <div>
+                        <label className="block text-xs font-medium text-muted-foreground mb-1.5">Video File</label>
+                        <input
+                          type="file"
+                          accept="video/*"
+                          onChange={(e) => setVideoFile(e.target.files?.[0] ?? null)}
+                          className="w-full text-xs"
+                        />
+                        {videoFile && <div className="mt-1 text-xs text-success">✓ {videoFile.name}</div>}
+                      </div>
+                    )}
+
+                    <div className="flex gap-2 pt-2">
                       <button
-                        onClick={() => setInputSource("webcam")}
-                        className={`p-4 rounded-xl border text-left transition-all duration-200 ${
-                          inputSource === "webcam"
-                            ? "border-primary bg-primary/10 glow-primary-sm"
-                            : "border-border bg-muted/30 hover:border-primary/30 hover:bg-muted/50"
+                        onClick={() => startInference(inputSource || "webcam")}
+                        disabled={runState === "starting" || (inputSource === "rtsp" && !rtspUrl.trim()) || (inputSource === "video" && !videoFile) || !inputSource}
+                        className={`flex-1 px-3 py-2 rounded-lg text-sm font-semibold transition-all ${
+                          runState !== "running" && ((inputSource && (inputSource === "webcam" || (inputSource === "rtsp" && rtspUrl.trim()) || (inputSource === "video" && videoFile))) || false)
+                            ? "bg-primary text-primary-foreground hover:scale-[1.01]"
+                            : "bg-muted text-muted-foreground cursor-not-allowed"
                         }`}
                       >
-                        <div className="flex items-center gap-2 mb-1">
-                          <Camera className="w-5 h-5 text-primary" />
-                          <span className="font-semibold text-sm">Webcam</span>
-                        </div>
-                        <p className="text-xs text-muted-foreground">Use browser camera.</p>
+                        {runState === "starting" ? "Starting…" : runState === "running" ? "Running" : "Start"}
                       </button>
-
-                      <button
-                        onClick={() => setInputSource("rtsp")}
-                        className={`p-4 rounded-xl border text-left transition-all duration-200 ${
-                          inputSource === "rtsp"
-                            ? "border-primary bg-primary/10 glow-primary-sm"
-                            : "border-border bg-muted/30 hover:border-primary/30 hover:bg-muted/50"
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 mb-1">
-                          <Wifi className="w-5 h-5 text-accent" />
-                          <span className="font-semibold text-sm">RTSP</span>
-                        </div>
-                        <p className="text-xs text-muted-foreground">Stream URL.</p>
-                      </button>
-
-                      <button
-                        onClick={() => setInputSource("video")}
-                        className={`p-4 rounded-xl border text-left transition-all duration-200 ${
-                          inputSource === "video"
-                            ? "border-primary bg-primary/10 glow-primary-sm"
-                            : "border-border bg-muted/30 hover:border-primary/30 hover:bg-muted/50"
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 mb-1">
-                          <Video className="w-5 h-5 text-success" />
-                          <span className="font-semibold text-sm">Video</span>
-                        </div>
-                        <p className="text-xs text-muted-foreground">Upload a file.</p>
-                      </button>
-                    </div>
-
-                    <div className="mt-4 rounded-xl border border-border bg-card overflow-hidden">
-                      <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-3">
-                        <div className="text-sm font-semibold">Detection Preview</div>
-                        <div className="text-xs text-muted-foreground font-mono">
-                          {frameStats?.fps ? `${frameStats.fps.toFixed(1)} FPS` : "-- FPS"} •{" "}
-                          {typeof frameStats?.inference_ms === "number" ? `${frameStats.inference_ms.toFixed(1)} ms` : "-- ms"}
-                        </div>
-                      </div>
-                      <div className="bg-muted/30 flex items-center justify-center">
-                        <canvas ref={canvasRef} className="max-h-[420px] w-full" />
-                      </div>
-                      {runState !== "running" && (
-                        <div className="p-4 text-xs text-muted-foreground">
-                          Start a session to see frames here (Universal sends frames via WebSocket as base64 JPEG).
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="mt-4 rounded-xl border border-border bg-muted/20 p-4">
-                      {!inputSource ? (
-                        <div className="text-sm text-muted-foreground">Select an input source above to show its settings.</div>
-                      ) : inputSource === "webcam" ? (
-                        <div className="flex items-start justify-between gap-4">
-                          <div>
-                            <div className="text-sm font-semibold">Webcam is opened</div>
-                            <div className="text-xs text-muted-foreground mt-1">We’ll start the Universal dashboard inference next.</div>
-                          </div>
-                          <button
-                            onClick={() => startInference("webcam")}
-                            className={`px-4 py-2 rounded-lg text-sm font-semibold ${
-                              runState === "starting"
-                                ? "bg-muted text-muted-foreground cursor-wait"
-                                : "bg-primary text-primary-foreground hover:scale-[1.01] transition-transform"
-                            }`}
-                            disabled={runState === "starting"}
-                          >
-                            {runState === "starting" ? "Starting…" : runState === "running" ? "Running" : "Start"}
-                          </button>
-                          {runState === "running" && (
-                            <button
-                              onClick={stopInference}
-                              className="px-4 py-2 rounded-lg border border-border bg-card text-sm font-semibold hover:bg-muted transition-colors"
-                            >
-                              Stop
-                            </button>
-                          )}
-                        </div>
-                      ) : inputSource === "rtsp" ? (
-                        <div className="space-y-3">
-                          <div className="text-sm font-semibold">RTSP is opened</div>
-                          <div>
-                            <label className="block text-xs font-medium text-secondary-foreground mb-2">RTSP URL</label>
-                            <input
-                              value={rtspUrl}
-                              onChange={(e) => setRtspUrl(e.target.value)}
-                              placeholder="rtsp://username:password@ip:554/stream"
-                              className="w-full px-4 py-3 rounded-lg bg-muted border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
-                            />
-                          </div>
-                          <button
-                            onClick={() => startInference("rtsp")}
-                            className={`px-4 py-2 rounded-lg text-sm font-semibold ${
-                              rtspUrl.trim() && runState !== "starting"
-                                ? "bg-primary text-primary-foreground hover:scale-[1.01] transition-transform"
-                                : "bg-muted text-muted-foreground cursor-not-allowed"
-                            }`}
-                            disabled={!rtspUrl.trim() || runState === "starting"}
-                          >
-                            {runState === "starting" ? "Starting…" : runState === "running" ? "Running" : "Start"}
-                          </button>
-                          {runState === "running" && (
-                            <button
-                              onClick={stopInference}
-                              className="px-4 py-2 rounded-lg border border-border bg-card text-sm font-semibold hover:bg-muted transition-colors"
-                            >
-                              Stop
-                            </button>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="space-y-3">
-                          <div className="text-sm font-semibold">Video upload is opened</div>
-                          <div>
-                            <label className="block text-xs font-medium text-secondary-foreground mb-2">Video file</label>
-                            <input
-                              type="file"
-                              accept="video/*"
-                              onChange={(e) => setVideoFile(e.target.files?.[0] ?? null)}
-                              className="w-full text-sm"
-                            />
-                            {videoFile && (
-                              <div className="mt-2 text-xs text-muted-foreground">Selected: {videoFile.name}</div>
-                            )}
-                          </div>
-                          <button
-                            onClick={() => startInference("video")}
-                            className={`px-4 py-2 rounded-lg text-sm font-semibold ${
-                              videoFile && runState !== "starting"
-                                ? "bg-primary text-primary-foreground hover:scale-[1.01] transition-transform"
-                                : "bg-muted text-muted-foreground cursor-not-allowed"
-                            }`}
-                            disabled={!videoFile || runState === "starting"}
-                          >
-                            {runState === "starting" ? "Uploading…" : runState === "running" ? "Running" : "Upload & Start"}
-                          </button>
-                          {runState === "running" && (
-                            <button
-                              onClick={stopInference}
-                              className="px-4 py-2 rounded-lg border border-border bg-card text-sm font-semibold hover:bg-muted transition-colors"
-                            >
-                              Stop
-                            </button>
-                          )}
-                        </div>
+                      {runState === "running" && (
+                        <button
+                          onClick={stopInference}
+                          className="px-3 py-2 rounded-lg border border-destructive bg-destructive/10 text-destructive text-sm font-semibold hover:bg-destructive/20"
+                        >
+                          Stop
+                        </button>
                       )}
                     </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -841,4 +686,3 @@ const ModelsView = () => {
 };
 
 export default ModelsView;
-
