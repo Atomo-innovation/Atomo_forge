@@ -235,6 +235,26 @@ app.post('/api/devices/register', async (req, res) => {
   const hasMeshCol = await atomoDevicesHasMeshUsernameColumn();
 
   try {
+    if (hasMeshCol && meshUsernameRaw) {
+      const [existing] = await pool.query(
+        `SELECT serial_number AS serialNumber
+         FROM atomo_registered_devices
+         WHERE LOWER(TRIM(COALESCE(mesh_username, ''))) = ?
+         LIMIT 1`,
+        [meshUsernameRaw]
+      );
+      if (existing && existing.length > 0) {
+        const existingSerial = String(existing[0].serialNumber || '').trim();
+        if (existingSerial && existingSerial !== serialNumber) {
+          return res.status(409).json({
+            ok: false,
+            error:
+              'This account already has a registered device. Only one device is allowed per login.',
+          });
+        }
+      }
+    }
+
     if (hasMeshCol) {
       await pool.query(
         `INSERT INTO atomo_registered_devices

@@ -395,7 +395,11 @@ function execMeshAgentCommand(shellCmd, options) {
   const sudoPassword =
     options && typeof options.sudoPassword === 'string' ? options.sudoPassword : '';
   const useSudoStdin = sudoPassword.length > 0;
-  const cmd = useSudoStdin ? shellCmd.replace(/\bsudo -E\b/g, 'sudo -k -S -E') : shellCmd;
+  // Never use interactive sudo (no TTY): -S + stdin when password provided, -n when not.
+  const cmd = shellCmd.replace(
+    /\bsudo -E\b/g,
+    useSudoStdin ? 'sudo -k -S -E' : 'sudo -n -E',
+  );
   const maxBuf = 12 * 1024 * 1024;
 
   return new Promise((resolve) => {

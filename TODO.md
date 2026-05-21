@@ -1,0 +1,5 @@
+- [ ] Reorder UI in `src/components/onboarding/RegistrationScreen.tsx` so Device Serial/Details appear above the MeshCentral section.
+- [ ] Link MeshCentral agent install with the main Register Device submit so a single click performs both: device registration (/api/devices/register) and meshcentral provisioning (/api/meshcentral/create-group and /api/meshcentral/run-agent for install).
+- [ ] Keep MeshCentral uninstall/copy buttons/dialog behavior unchanged.
+- [ ] Ensure TypeScript/React build passes.
+- [ ] Manual verification: one-click registers device and installs agent; login/dashboard shows device details.

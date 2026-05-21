@@ -1,6 +1,10 @@
 import { authApiUrl, getAuthApiOrigin, readForgeApiJson } from "@/services/authApiUrl";
 
-import type { DeviceProfile } from "@/services/deviceProfile";
+import {
+  getDeviceProfile,
+  setDeviceProfile,
+  type DeviceProfile,
+} from "@/services/deviceProfile";
 
 export type RegistrationRow = {
   serialNumber: string;
@@ -108,6 +112,19 @@ export async function fetchDeviceRegistrations(
     migrationNeeded: j.migrationNeeded === true,
     hint: typeof j.hint === "string" ? j.hint : undefined,
   };
+}
+
+/** Load the account's single device from MySQL into local profile (if present). */
+export async function hydrateDeviceProfileFromServer(
+  meshUsername: string,
+): Promise<boolean> {
+  const u = meshUsername.trim().toLowerCase();
+  if (!u) return false;
+  if (getDeviceProfile(u)) return true;
+  const result = await fetchDeviceRegistrations(u);
+  if (!result.ok || result.devices.length === 0) return false;
+  setDeviceProfile(u, deviceProfileFromRegistrationRow(result.devices[0]));
+  return true;
 }
 
 export function deviceProfileFromRegistrationRow(d: RegistrationRow): DeviceProfile {

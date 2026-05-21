@@ -2,6 +2,8 @@ import { useState } from "react";
 import LoginScreen from "@/components/onboarding/LoginScreen";
 import RegistrationScreen from "@/components/onboarding/RegistrationScreen";
 import SuccessScreen from "@/components/onboarding/SuccessScreen";
+import { hasDeviceProfile } from "@/services/deviceProfile";
+import { hydrateDeviceProfileFromServer } from "@/services/deviceRegistrations";
 
 const Onboarding = ({
   onOnboardingComplete,
@@ -19,8 +21,14 @@ const Onboarding = ({
       {step === "login" && (
         <LoginScreen
           onGetStarted={() => setStep("register")}
-          onLoginSuccess={(u) => {
+          onLoginSuccess={async (u) => {
             setMeshUsername(u);
+            const registered =
+              hasDeviceProfile(u) || (await hydrateDeviceProfileFromServer(u));
+            if (registered) {
+              onOnboardingComplete?.(u);
+              return;
+            }
             setStep("register");
           }}
         />

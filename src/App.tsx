@@ -16,6 +16,7 @@ import {
   readPersistedSession,
 } from "@/services/authSession";
 import { hasDeviceProfile } from "@/services/deviceProfile";
+import { hydrateDeviceProfileFromServer } from "@/services/deviceRegistrations";
 import { AuthUsernameProvider } from "@/contexts/AuthUsernameContext";
 
 const queryClient = new QueryClient();
@@ -33,11 +34,14 @@ const ForgeRoutes = () => {
     return Boolean(p != null && hasDeviceProfile(p.username ?? undefined));
   });
 
-  const handleLoginSuccess = (username: string) => {
+  const handleLoginSuccess = async (username: string) => {
     const u = username.trim().toLowerCase();
     persistForgeSession(u);
     setLoggedInUsername(u);
     setIsLoggedIn(true);
+    if (!hasDeviceProfile(u)) {
+      await hydrateDeviceProfileFromServer(u);
+    }
     setRegistrationGateOpen(hasDeviceProfile(u));
   };
 
@@ -79,7 +83,17 @@ const ForgeRoutes = () => {
         />
         <Route
           path="/register"
-          element={isLoggedIn ? <Register onRegistered={handleRegistrationComplete} /> : <Navigate to="/login" replace />}
+          element={
+            isLoggedIn ? (
+              registrationGateOpen ? (
+                <Navigate to="/dashboard" replace />
+              ) : (
+                <Register onRegistered={handleRegistrationComplete} />
+              )
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
         />
         <Route
           path="/success"

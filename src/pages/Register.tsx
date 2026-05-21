@@ -1,8 +1,9 @@
 import RegistrationScreen from "@/components/onboarding/RegistrationScreen";
 import { useAuthUsername } from "@/contexts/AuthUsernameContext";
 import { hasDeviceProfile } from "@/services/deviceProfile";
-import { useEffect, useMemo } from "react";
-import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
+import { hydrateDeviceProfileFromServer } from "@/services/deviceRegistrations";
+import { useEffect, useState } from "react";
+import { Navigate, useNavigate } from "react-router-dom";
 
 type Props = {
   onRegistered?: () => void;
@@ -11,40 +12,49 @@ type Props = {
 const Register = ({ onRegistered }: Props) => {
   const navigate = useNavigate();
   const username = useAuthUsername();
-  const [searchParams] = useSearchParams();
-  const additional = useMemo(() => {
-    const v = searchParams.get("additional");
-    return v === "1" || v === "true";
-  }, [searchParams]);
+  const [checkingExisting, setCheckingExisting] = useState(true);
 
   useEffect(() => {
-    if (!username) return;
-    if (additional) return;
-    if (!hasDeviceProfile(username)) return;
-    onRegistered?.();
-    navigate("/dashboard", { replace: true });
-  }, [additional, username, navigate, onRegistered]);
+    if (!username) {
+      setCheckingExisting(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const registered =
+        hasDeviceProfile(username) ||
+        (await hydrateDeviceProfileFromServer(username));
+      if (cancelled) return;
+      if (registered) {
+        onRegistered?.();
+        navigate("/dashboard", { replace: true });
+        return;
+      }
+      setCheckingExisting(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [username, navigate, onRegistered]);
 
   const handleSuccess = () => {
     onRegistered?.();
-    if (additional) {
-      navigate("/dashboard", { replace: true, state: { openSettings: true } });
-    } else {
-      navigate("/dashboard");
-    }
+    navigate("/dashboard", { replace: true });
   };
 
   if (!username) {
     return <Navigate to="/login" replace />;
   }
 
-  return (
-    <RegistrationScreen
-      onSuccess={handleSuccess}
-      registrationPurpose={additional ? "additional" : "initial"}
-    />
-  );
+  if (checkingExisting) {
+    return (
+      <div className="flex min-h-screen items-center justify-center px-6">
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      </div>
+    );
+  }
+
+  return <RegistrationScreen onSuccess={handleSuccess} />;
 };
 
 export default Register;
-

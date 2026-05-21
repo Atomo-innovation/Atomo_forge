@@ -1,6 +1,5 @@
 /**
- * Stores device registration per MeshCentral username so multiple accounts on one
- * browser each see their own registration / dashboard device info.
+ * Stores one device registration per MeshCentral username on this browser.
  *
  * Key: `atomo_device_profile:<normalizedUsername>` for logged-in flows.
  *

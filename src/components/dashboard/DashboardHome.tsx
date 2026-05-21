@@ -15,7 +15,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Columns2, GripVertical, Maximize2, Plus, Camera, BarChart3, TrendingUp, Clock, Target, PencilLine, RefreshCw } from "lucide-react";
+import { Columns2, GripVertical, Maximize2, Plus, Camera, BarChart3, TrendingUp, Clock, Target, PencilLine } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CAMERA_WORKSPACE_TITLE, type CameraConfig, type CameraWorkspaceId } from "@/pages/Dashboard";
 import { AddCameraModal } from "@/components/dashboard/AddCameraModal";
@@ -27,16 +27,7 @@ import {
 } from "@/services/detectionEventsStore";
 import { useModels } from "@/hooks/useModels";
 import { getCameraFingerprint, getOrCreateStableCameraId } from "@/services/cameraIdentity";
-import { useAuthUsername } from "@/contexts/AuthUsernameContext";
-import {
-  DEVICE_PROFILE_CHANGED_EVENT,
-  getDeviceProfile,
-  setDeviceProfile,
-} from "@/services/deviceProfile";
-import { deviceProfileFromRegistrationRow, fetchDeviceRegistrations, type RegistrationRow, type FetchRegistrationsErr } from "@/services/deviceRegistrations";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -228,68 +219,6 @@ function SortablePanel({
 }
 
 const DashboardHome = ({ cameras, onAddCamera, onUpdateCamera, onViewCamera, onOpenSettings }: Props) => {
-  const meshUsername = useAuthUsername();
-  const profileEmail = meshUsername ? getDeviceProfile(meshUsername)?.email?.trim().toLowerCase() ?? null : null;
-
-  const [regDevices, setRegDevices] = useState<RegistrationRow[]>([]);
-  const [regLoading, setRegLoading] = useState(false);
-  const [regError, setRegError] = useState<string | null>(null);
-  const [profileEpoch, setProfileEpoch] = useState(0);
-
-  useEffect(() => {
-    const onProfile = () => setProfileEpoch((n) => n + 1);
-    window.addEventListener(DEVICE_PROFILE_CHANGED_EVENT, onProfile);
-    window.addEventListener("storage", onProfile);
-    return () => {
-      window.removeEventListener(DEVICE_PROFILE_CHANGED_EVENT, onProfile);
-      window.removeEventListener("storage", onProfile);
-    };
-  }, []);
-
-  const dashboardSerialActive = useMemo(() => {
-    void profileEpoch;
-    if (!meshUsername) return null;
-    return getDeviceProfile(meshUsername)?.serialNumber?.trim() ?? null;
-  }, [meshUsername, profileEpoch]);
-
-  const loadRegistrationsOverview = useCallback(async () => {
-    if (!meshUsername) {
-      setRegDevices([]);
-      setRegError(null);
-      return;
-    }
-    setRegLoading(true);
-    setRegError(null);
-    try {
-      const result = await fetchDeviceRegistrations(meshUsername, profileEmail);
-      if (!result.ok) {
-        setRegError((result as FetchRegistrationsErr).error);
-        setRegDevices([]);
-        return;
-      }
-      setRegDevices(result.devices);
-    } finally {
-      setRegLoading(false);
-    }
-  }, [meshUsername, profileEmail]);
-
-  useEffect(() => {
-    void loadRegistrationsOverview();
-  }, [loadRegistrationsOverview]);
-
-  const selectRegisteredDevice = useCallback(
-    (d: RegistrationRow) => {
-      if (!meshUsername) return;
-      const sn = d.serialNumber.trim();
-      if (dashboardSerialActive === sn) return;
-      setDeviceProfile(meshUsername, deviceProfileFromRegistrationRow(d));
-      toast.success("Active device updated", {
-        description: `Overview shows “${d.deviceName.trim()}” (${sn}).`,
-      });
-    },
-    [meshUsername, dashboardSerialActive],
-  );
-
   const initial = useMemo(() => loadLayout(), []);
   const [order, setOrder] = useState<PanelId[]>(initial.order);
   const [spans, setSpans] = useState<Record<PanelId, WidthMode>>(initial.spans);
@@ -717,95 +646,6 @@ const DashboardHome = ({ cameras, onAddCamera, onUpdateCamera, onViewCamera, onO
           Reset layout
         </button>
       </header>
-
-      {meshUsername ? (
-        <section
-          className="mb-6 rounded-xl border border-border/70 bg-card/80 p-4 shadow-sm sm:p-5"
-          aria-labelledby="registered-devices-heading"
-        >
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0">
-              <h2 id="registered-devices-heading" className="text-sm font-semibold text-foreground">
-                Registered devices
-              </h2>
-              <p className="mt-1 text-xs text-muted-foreground max-w-xl">
-                Units tied to your Mesh login in MySQL. Select one to update the top bar (name, org, serial). Cameras and events stay on this browser until you manage them per workspace.
-              </p>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="shrink-0 gap-2"
-              disabled={regLoading || !meshUsername}
-              onClick={() => void loadRegistrationsOverview()}
-            >
-              <RefreshCw className={`h-4 w-4 ${regLoading ? "animate-spin" : ""}`} />
-              Refresh list
-            </Button>
-          </div>
-
-          {regError ? (
-            <p className="mt-3 text-sm text-destructive">{regError}</p>
-          ) : null}
-
-          {regLoading && regDevices.length === 0 && !regError ? (
-            <p className="mt-3 text-sm text-muted-foreground">Loading registrations…</p>
-          ) : null}
-
-          {!regLoading && regDevices.length === 0 && !regError ? (
-            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-sm text-muted-foreground">No rows returned for this login yet.</p>
-              {onOpenSettings ? (
-                <Button type="button" variant="secondary" size="sm" onClick={onOpenSettings}>
-                  Open Settings
-                </Button>
-              ) : null}
-            </div>
-          ) : null}
-
-          {regDevices.length > 0 ? (
-            <div className="mt-4 flex gap-3 overflow-x-auto pb-1 pt-0.5">
-              {regDevices.map((d) => {
-                const active = dashboardSerialActive === d.serialNumber.trim();
-                return (
-                  <button
-                    key={`${d.serialNumber}-${d.updatedAt ?? ""}`}
-                    type="button"
-                    onClick={() => selectRegisteredDevice(d)}
-                    className={cn(
-                      "min-w-[200px] max-w-[280px] shrink-0 rounded-xl border px-4 py-3 text-left transition-all outline-none",
-                      "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-                      active
-                        ? "border-primary bg-primary/10 shadow-sm ring-2 ring-primary/25"
-                        : "border-border/80 bg-muted/25 hover:border-primary/35 hover:bg-muted/40",
-                    )}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="min-w-0 flex-1 truncate font-medium leading-snug">{d.deviceName}</span>
-                      {active ? (
-                        <Badge variant="secondary" className="shrink-0 font-normal text-[10px]">
-                          Active
-                        </Badge>
-                      ) : (
-                        <span className="shrink-0 text-[10px] text-muted-foreground">Switch</span>
-                      )}
-                    </div>
-                    <p className="mt-1 font-mono text-[11px] text-muted-foreground truncate" title={d.serialNumber}>
-                      {d.serialNumber}
-                    </p>
-                    {d.organizationName.trim() && d.organizationName !== "—" ? (
-                      <p className="mt-1 truncate text-xs text-muted-foreground" title={d.organizationName}>
-                        {d.organizationName}
-                      </p>
-                    ) : null}
-                  </button>
-                );
-              })}
-            </div>
-          ) : null}
-        </section>
-      ) : null}
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={order} strategy={rectSortingStrategy}>
