@@ -30,6 +30,7 @@ import { getCameraFingerprint, getOrCreateStableCameraId } from "@/services/came
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { cn } from "@/lib/utils";
+import { canAddMoreCameras, MAX_CAMERAS } from "@/lib/cameraLimits";
 
 interface Props {
   cameras: CameraConfig[];
@@ -221,6 +222,7 @@ function SortablePanel({
 }
 
 const DashboardHome = ({ cameras, onAddCamera, onUpdateCamera, onViewCamera, onOpenSettings }: Props) => {
+  const canAddCamera = canAddMoreCameras(cameras.length);
   const initial = useMemo(() => loadLayout(), []);
   const [order, setOrder] = useState<PanelId[]>(initial.order);
   const [spans, setSpans] = useState<Record<PanelId, WidthMode>>(initial.spans);
@@ -421,7 +423,7 @@ const DashboardHome = ({ cameras, onAddCamera, onUpdateCamera, onViewCamera, onO
           <SortablePanel
             id="cameras"
             title="Cameras"
-            subtitle="Camera name, detection workspace, and AI status"
+            subtitle={`${cameras.length}/${MAX_CAMERAS} cameras · name, workspace, and AI status`}
             widthMode={wm}
             onToggleWidth={tw}
           >
@@ -489,14 +491,23 @@ const DashboardHome = ({ cameras, onAddCamera, onUpdateCamera, onViewCamera, onO
                       </div>
                     ))}
                   </div>
-                  <div className="mt-8 flex justify-center">
+                  <div className="mt-8 flex flex-col items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => setOverviewAddOpen(true)}
-                      className="inline-flex items-center gap-2 rounded-lg bg-gradient-atomic px-6 py-3 font-medium text-primary-foreground glow-primary transition-transform hover:scale-[1.02]"
+                      onClick={() => canAddCamera && setOverviewAddOpen(true)}
+                      disabled={!canAddCamera}
+                      className={cn(
+                        "inline-flex items-center gap-2 rounded-lg px-6 py-3 font-medium transition-transform",
+                        canAddCamera
+                          ? "bg-gradient-atomic text-primary-foreground glow-primary hover:scale-[1.02]"
+                          : "cursor-not-allowed bg-muted text-muted-foreground",
+                      )}
                     >
                       <Plus className="h-5 w-5" /> Add Camera
                     </button>
+                    {!canAddCamera ? (
+                      <p className="text-center text-xs text-muted-foreground">Maximum {MAX_CAMERAS} cameras reached</p>
+                    ) : null}
                   </div>
                 </>
               ) : (
@@ -504,8 +515,14 @@ const DashboardHome = ({ cameras, onAddCamera, onUpdateCamera, onViewCamera, onO
                   <Camera className="h-14 w-14 shrink-0 text-muted-foreground/30 sm:h-16 sm:w-16" aria-hidden />
                   <button
                     type="button"
-                    onClick={() => setOverviewAddOpen(true)}
-                    className="mt-4 inline-flex items-center gap-2 rounded-lg bg-gradient-atomic px-6 py-3 font-medium text-primary-foreground glow-primary transition-transform hover:scale-[1.02]"
+                    onClick={() => canAddCamera && setOverviewAddOpen(true)}
+                    disabled={!canAddCamera}
+                    className={cn(
+                      "mt-4 inline-flex items-center gap-2 rounded-lg px-6 py-3 font-medium transition-transform",
+                      canAddCamera
+                        ? "bg-gradient-atomic text-primary-foreground glow-primary hover:scale-[1.02]"
+                        : "cursor-not-allowed bg-muted text-muted-foreground",
+                    )}
                   >
                     <Plus className="h-5 w-5" aria-hidden /> Add Camera
                   </button>
@@ -667,6 +684,7 @@ const DashboardHome = ({ cameras, onAddCamera, onUpdateCamera, onViewCamera, onO
         workspaceTitle={CAMERA_WORKSPACE_TITLE[overviewWorkspace]}
         showWorkspacePicker
         onWorkspaceChange={setOverviewWorkspace}
+        totalCameraCount={cameras.length}
         onAddCamera={onAddCamera}
         onUpdateCamera={onUpdateCamera}
       />

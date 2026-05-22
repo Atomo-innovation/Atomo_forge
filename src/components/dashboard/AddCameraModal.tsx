@@ -5,6 +5,7 @@ import { CAMERA_WORKSPACE_TITLE, type CameraConfig, type CameraWorkspaceId } fro
 import { getCameraFingerprint, getOrCreateStableCameraId } from "@/services/cameraIdentity";
 import { useModels } from "@/hooks/useModels";
 import ModelSelector from "@/components/dashboard/ModelSelector";
+import { canAddMoreCameras, MAX_CAMERAS, MAX_CAMERAS_MESSAGE } from "@/lib/cameraLimits";
 
 type ModalStep = "type" | "config";
 type CameraType = "usb" | "rtsp" | "csi";
@@ -17,6 +18,8 @@ export interface AddCameraModalProps {
   /** Overview: let user pick Person / Fire & Smoke / … before adding. */
   showWorkspacePicker?: boolean;
   onWorkspaceChange?: (id: CameraWorkspaceId) => void;
+  /** Total cameras across all workspaces (limit is global). */
+  totalCameraCount: number;
   onAddCamera: (camera: CameraConfig, opts?: { openLive?: boolean }) => void;
   onUpdateCamera: (cameraId: string, patch: Partial<CameraConfig>) => void;
 }
@@ -34,9 +37,11 @@ export function AddCameraModal({
   workspaceTitle,
   showWorkspacePicker = false,
   onWorkspaceChange,
+  totalCameraCount,
   onAddCamera,
   onUpdateCamera,
 }: AddCameraModalProps) {
+  const atLimit = !canAddMoreCameras(totalCameraCount);
   const [modalStep, setModalStep] = useState<ModalStep>("type");
   const [selectedType, setSelectedType] = useState<CameraType | null>(null);
   const [cameraName, setCameraName] = useState("");
@@ -70,6 +75,7 @@ export function AddCameraModal({
   }, [open]);
 
   const canSubmit = useMemo(() => {
+    if (atLimit) return false;
     if (modalStep !== "config") return false;
     if (!selectedType) return false;
     if (!cameraName.trim()) return false;
@@ -77,7 +83,7 @@ export function AddCameraModal({
     if (autoStart && !selectedModelId) return false;
     if (startBusy) return false;
     return true;
-  }, [autoStart, cameraName, modalStep, rtspUrl, selectedModelId, selectedType, startBusy]);
+  }, [atLimit, autoStart, cameraName, modalStep, rtspUrl, selectedModelId, selectedType, startBusy]);
 
   const shouldShowModelPicker = autoStart && (modelPickerOpen || Boolean(selectedModelId));
 
@@ -137,6 +143,7 @@ export function AddCameraModal({
   };
 
   const submitAdd = () => {
+    if (atLimit) return;
     const cam = createCamera();
     if (!cam) return;
     setStartErr(null);
@@ -156,6 +163,13 @@ export function AddCameraModal({
   };
 
   if (!open) return null;
+
+  const limitBanner = atLimit ? (
+    <div className="mb-4 rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-foreground">
+      <p className="font-medium">Camera limit reached ({MAX_CAMERAS}/{MAX_CAMERAS})</p>
+      <p className="mt-1 text-muted-foreground">{MAX_CAMERAS_MESSAGE}</p>
+    </div>
+  ) : null;
 
   const workspaceSelect =
     showWorkspacePicker && onWorkspaceChange ? (
@@ -193,20 +207,24 @@ export function AddCameraModal({
         >
           {modalStep === "type" && (
             <>
+              {limitBanner}
               {workspaceSelect}
               <p className="mb-1 text-sm font-semibold text-primary">{workspaceTitle}</p>
               <h2 className="mb-2 text-2xl font-bold">Add New Camera</h2>
-              <p className="mb-6 text-muted-foreground">Select camera connection type</p>
+              <p className="mb-6 text-muted-foreground">
+                {atLimit ? "Remove a camera before adding another." : "Select camera connection type"}
+              </p>
               <div className="space-y-3">
                 {cameraTypes.map((type) => (
                   <button
                     key={type.id}
                     type="button"
+                    disabled={atLimit}
                     onClick={() => {
                       setSelectedType(type.id);
                       setModalStep("config");
                     }}
-                    className="group flex w-full items-center gap-4 rounded-xl border border-border bg-muted/50 p-4 text-left transition-all hover:border-primary/50 hover:bg-muted"
+                    className="group flex w-full items-center gap-4 rounded-xl border border-border bg-muted/50 p-4 text-left transition-all hover:border-primary/50 hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 transition-colors group-hover:bg-primary/20">
                       <type.icon className="h-6 w-6 text-primary" />
@@ -223,6 +241,7 @@ export function AddCameraModal({
 
           {modalStep === "config" && selectedType === "usb" && (
             <>
+              {limitBanner}
               {workspaceSelect}
               <p className="mb-2 text-sm font-semibold text-primary">{workspaceTitle}</p>
               <h2 className="mb-6 text-2xl font-bold">USB Camera Setup</h2>
@@ -315,6 +334,7 @@ export function AddCameraModal({
 
           {modalStep === "config" && selectedType === "rtsp" && (
             <>
+              {limitBanner}
               {workspaceSelect}
               <p className="mb-2 text-sm font-semibold text-primary">{workspaceTitle}</p>
               <h2 className="mb-6 text-2xl font-bold">RTSP Camera Setup</h2>
@@ -420,6 +440,7 @@ export function AddCameraModal({
 
           {modalStep === "config" && selectedType === "csi" && (
             <>
+              {limitBanner}
               {workspaceSelect}
               <p className="mb-2 text-sm font-semibold text-primary">{workspaceTitle}</p>
               <h2 className="mb-6 text-2xl font-bold">CSI Camera Setup</h2>

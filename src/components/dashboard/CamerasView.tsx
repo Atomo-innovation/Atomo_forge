@@ -13,6 +13,8 @@ import { AddCameraModal } from "@/components/dashboard/AddCameraModal";
 import { RenameCameraDialog } from "@/components/dashboard/RenameCameraDialog";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DASHBOARD_VIEW_META } from "@/lib/dashboardViewMeta";
+import { canAddMoreCameras, MAX_CAMERAS } from "@/lib/cameraLimits";
+import { cn } from "@/lib/utils";
 
 interface Props {
   /** Which sidebar detection workspace this screen is for — stored on new cameras. */
@@ -20,6 +22,8 @@ interface Props {
   /** Workspace name from sidebar (Person, Fire & Smoke, etc.) */
   workspaceTitle?: string;
   cameras: CameraConfig[];
+  /** All cameras on the account (limit is global, not per workspace). */
+  totalCameraCount: number;
   onAddCamera: (camera: CameraConfig, opts?: { openLive?: boolean }) => void;
   onUpdateCamera: (cameraId: string, patch: Partial<CameraConfig>) => void;
   onDeleteCamera: (cameraId: string) => void;
@@ -30,6 +34,7 @@ const CamerasView = ({
   workspaceId,
   workspaceTitle = "Cameras",
   cameras,
+  totalCameraCount,
   onAddCamera,
   onUpdateCamera,
   onDeleteCamera,
@@ -146,6 +151,7 @@ const CamerasView = ({
   }, []);
 
   const meta = DASHBOARD_VIEW_META[workspaceId];
+  const canAddCamera = canAddMoreCameras(totalCameraCount);
 
   return (
     <div className="animate-fade-in">
@@ -153,7 +159,13 @@ const CamerasView = ({
         title={meta?.title ?? workspaceTitle}
         description={meta?.description ?? "Manage connected cameras for this workspace."}
         actions={
-          <button type="button" onClick={() => setAddModalOpen(true)} className="btn-primary-gradient gap-2">
+          <button
+            type="button"
+            onClick={() => canAddCamera && setAddModalOpen(true)}
+            disabled={!canAddCamera}
+            title={canAddCamera ? undefined : `Maximum ${MAX_CAMERAS} cameras`}
+            className={cn("gap-2", canAddCamera ? "btn-primary-gradient" : "btn-primary-gradient cursor-not-allowed opacity-50")}
+          >
             <Plus className="h-4 w-4" /> Add camera
           </button>
         }
@@ -440,6 +452,7 @@ const CamerasView = ({
         onClose={() => setAddModalOpen(false)}
         workspaceId={workspaceId}
         workspaceTitle={workspaceTitle}
+        totalCameraCount={totalCameraCount}
         onAddCamera={onAddCamera}
         onUpdateCamera={onUpdateCamera}
       />

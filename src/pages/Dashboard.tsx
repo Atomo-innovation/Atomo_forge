@@ -7,6 +7,8 @@ import { clearAllDetectionEvents, updateCameraDisplayNameOnEvents } from "@/serv
 import { clearExportRootDirectoryHandle } from "@/services/detectionFolderExport";
 import { clearCameraRegistry } from "@/services/cameraRegistry";
 import { clearCameraIdMap, getCameraFingerprint, getOrCreateStableCameraId } from "@/services/cameraIdentity";
+import { MAX_CAMERAS, MAX_CAMERAS_MESSAGE } from "@/lib/cameraLimits";
+import { toast } from "sonner";
 
 export type DashboardView =
   | "home"
@@ -144,7 +146,8 @@ const Dashboard = ({ onLogout }: { onLogout: () => void }) => {
       if (!raw) return [] as CameraConfig[];
       const parsed = JSON.parse(raw) as unknown;
       if (!Array.isArray(parsed)) return [] as CameraConfig[];
-      return parsed.map(sanitizeCamera).filter(Boolean) as CameraConfig[];
+      const list = parsed.map(sanitizeCamera).filter(Boolean) as CameraConfig[];
+      return list.slice(0, MAX_CAMERAS);
     } catch {
       return [] as CameraConfig[];
     }
@@ -186,7 +189,18 @@ const Dashboard = ({ onLogout }: { onLogout: () => void }) => {
   };
 
   const handleAddCamera = (camera: CameraConfig, opts?: { openLive?: boolean }) => {
-    setCameras((prev) => [camera, ...prev]);
+    let rejected = false;
+    setCameras((prev) => {
+      if (prev.length >= MAX_CAMERAS) {
+        rejected = true;
+        return prev;
+      }
+      return [camera, ...prev];
+    });
+    if (rejected) {
+      toast.error("Camera limit reached", { description: MAX_CAMERAS_MESSAGE });
+      return;
+    }
     if (opts?.openLive) {
       setLiveViewReturn(CAMERA_PANEL_VIEWS.includes(view) ? view : "home");
       setSelectedCamera(camera);
@@ -261,6 +275,7 @@ const Dashboard = ({ onLogout }: { onLogout: () => void }) => {
             workspaceId={view}
             workspaceTitle={CAMERA_WORKSPACE_TITLE[view]}
             cameras={camerasForWorkspace(cameras, view)}
+            totalCameraCount={cameras.length}
             onAddCamera={handleAddCamera}
             onUpdateCamera={handleUpdateCamera}
             onDeleteCamera={handleDeleteCamera}
