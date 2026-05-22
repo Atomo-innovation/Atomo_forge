@@ -5,6 +5,12 @@ set -euo pipefail
 log() { printf '[forge] %s\n' "$*"; }
 
 lan_ip() {
+  local from_node
+  from_node="$(node "$(cd "$(dirname "$0")/.." && pwd)/scripts/forge-network.cjs" 2>/dev/null || true)"
+  if [[ -n "$from_node" ]]; then
+    printf '%s' "$from_node"
+    return
+  fi
   ip -4 route get 1.1.1.1 2>/dev/null | awk '{print $7; exit}' || true
 }
 
@@ -16,15 +22,16 @@ if [[ -z "$LAN_IP" ]]; then
 fi
 
 log '────────────────── LAN (other devices) ──────────────────'
-log "Same Wi‑Fi only. On phone/tablet/other PC, open:"
-log "  http://${LAN_IP}"
-if command -v avahi-resolve &>/dev/null && systemctl is-active avahi-daemon &>/dev/null 2>&1; then
-  log '  http://electron.local   (mDNS — may not work on all Android/Windows)'
+log 'Same Wi‑Fi only. On phone/tablet/other PC, type in the browser:'
+if [[ "${FORGE_MDNS_ACTIVE:-0}" == "1" ]] || (command -v systemctl >/dev/null 2>&1 && systemctl is-active avahi-daemon &>/dev/null 2>&1); then
+  log '  http://electron.local   ← preferred (mDNS)'
+  log "  http://${LAN_IP}          ← fallback if .local does not resolve"
 else
-  log '  mDNS off — run once on this PC: npm run lan:setup'
+  log '  http://electron.local   ← run once: npm run lan:setup'
+  log "  http://${LAN_IP}          ← works without mDNS"
 fi
-log 'Do not use https://electron.local on other devices unless you install the local CA cert.'
-log 'This PC (with /etc/hosts): https://electron.local or https://electron.local:8443'
+log 'Use http:// not https:// on other devices (unless you install the Caddy CA).'
+log 'This PC: https://electron.local or https://electron.local:8443 (may use /etc/hosts)'
 if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q 'Status: active'; then
   log 'Firewall active — if LAN fails: sudo ufw allow 80,443/tcp'
 fi

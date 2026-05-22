@@ -13,7 +13,12 @@ for arg in "$@"; do
 done
 
 bash scripts/ensure-caddy-443.sh
-export FORGE_LAN_IP="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{print $7; exit}' || true)"
+bash scripts/ensure-mdns-electron-local.sh || true
+export FORGE_LAN_IP="$(node scripts/forge-network.cjs 2>/dev/null || ip -4 route get 1.1.1.1 2>/dev/null | awk '{print $7; exit}' || true)"
+if [[ -n "${FORGE_LAN_IP:-}" ]]; then
+  export VITE_LAN_HTTP_URL="http://${FORGE_LAN_IP}"
+  export FORGE_LAN_HTTP_URL="$VITE_LAN_HTTP_URL"
+fi
 bash scripts/print-lan-access.sh
 
 if ss -tln 2>/dev/null | grep -qE ':443\b'; then

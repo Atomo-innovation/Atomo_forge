@@ -9,6 +9,7 @@ import {
   setDeviceProfile,
 } from "@/services/deviceProfile";
 import { fetchDeviceRegistrations, deviceProfileFromRegistrationRow, type ByEmail, type RegistrationRow, type FetchRegistrationsErr } from "@/services/deviceRegistrations";
+import LanAccessPanel from "@/components/dashboard/LanAccessPanel";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,6 +21,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import LanAccessPanel from "@/components/dashboard/LanAccessPanel";
 
 function formatDt(value: string | Date | null | undefined): string {
   if (value == null) return "—";
@@ -122,6 +124,8 @@ const SettingsView = ({
         <h1 className="text-3xl font-bold mb-1">Settings</h1>
         <p className="text-muted-foreground">Device configuration and integrations</p>
       </div>
+
+      <LanAccessPanel />
 
       {/* Device registrations UI removed per user request; underlying logic kept. */}
 

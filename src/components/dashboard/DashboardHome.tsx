@@ -25,6 +25,7 @@ import {
   listDetectionEvents,
   type StoredDetectionEvent,
 } from "@/services/detectionEventsStore";
+import { loadDetectionEventThumbUrls, revokeThumbUrls } from "@/services/detectionEventThumbs";
 import { useModels } from "@/hooks/useModels";
 import { getCameraFingerprint, getOrCreateStableCameraId } from "@/services/cameraIdentity";
 import { Button } from "@/components/ui/button";
@@ -282,9 +283,15 @@ const DashboardHome = ({ cameras, onAddCamera, onUpdateCamera, onViewCamera, onO
 
   useEffect(() => {
     const reload = () => {
-      void listDetectionEvents().then(setRecentEvents).catch(() => setRecentEvents([]));
-      // A bit more for charting (last 24h window will trim it down).
-      void listDetectionEvents(2000).then(setChartEvents).catch(() => setChartEvents([]));
+      void listDetectionEvents(2000)
+        .then((list) => {
+          setChartEvents(list);
+          setRecentEvents(list.slice(0, 24));
+        })
+        .catch(() => {
+          setChartEvents([]);
+          setRecentEvents([]);
+        });
     };
     reload();
     const onChanged = () => reload();
@@ -361,27 +368,35 @@ const DashboardHome = ({ cameras, onAddCamera, onUpdateCamera, onViewCamera, onO
     return parts.join(", ");
   }, [chart.counts, chart.total]);
 
+  const recentAlertIds = useMemo(() => recentEvents.slice(0, 12).map((e) => e.id), [recentEvents]);
+
   useEffect(() => {
-    const prev = thumbUrlsRef.current;
-    const next: Record<string, string> = {};
-
-    for (const e of recentEvents) {
-      const existing = prev[e.id];
-      next[e.id] = existing ?? URL.createObjectURL(e.cropImage);
-    }
-
-    for (const [id, url] of Object.entries(prev)) {
-      if (!next[id]) URL.revokeObjectURL(url);
-    }
-
-    thumbUrlsRef.current = next;
-    setThumbUrls(next);
-  }, [recentEvents]);
+    let cancelled = false;
+    void loadDetectionEventThumbUrls(recentAlertIds).then((loaded) => {
+      if (cancelled) {
+        revokeThumbUrls(loaded);
+        return;
+      }
+      const prev = thumbUrlsRef.current;
+      const next: Record<string, string> = {};
+      for (const id of recentAlertIds) {
+        const url = loaded[id] ?? prev[id];
+        if (url) next[id] = url;
+      }
+      for (const [id, url] of Object.entries(prev)) {
+        if (!recentAlertIds.includes(id)) URL.revokeObjectURL(url);
+      }
+      thumbUrlsRef.current = next;
+      setThumbUrls(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [recentAlertIds]);
 
   useEffect(() => {
     return () => {
-      const cur = thumbUrlsRef.current;
-      for (const url of Object.values(cur)) URL.revokeObjectURL(url);
+      revokeThumbUrls(thumbUrlsRef.current);
       thumbUrlsRef.current = {};
     };
   }, []);

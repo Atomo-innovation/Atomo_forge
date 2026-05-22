@@ -14,6 +14,7 @@ const http = require('http');
 const multer = require('multer');
 const { defaultPaths, createUniversalState } = require('./universal/universal-backend.cjs');
 const { runMigrations } = require('./scripts/db-migrate.cjs');
+const { getDevNetworkInfo } = require('./scripts/forge-network.cjs');
 
 const app = express();
 app.use(cors({ origin: true }));
@@ -69,6 +70,10 @@ app.post('/universal/api/models/upload-folder', modelUpload.array('files'), (req
 });
 
 // GET /api/health - quick sanity check
+app.get('/api/dev/network-info', (_req, res) => {
+  res.json({ ok: true, ...getDevNetworkInfo() });
+});
+
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, service: 'auth-server', clawInstallInProgress: clawInstallInProgress === true });
 });
@@ -974,8 +979,13 @@ const { registerMeshCentralRoutes } = require('./meshcentral-api.cjs');
 registerMeshCentralRoutes(app, { pool });
 
 const PORT = parseInt(process.env.AUTH_PORT || '3003', 10);
-server.listen(PORT, () => {
-  console.log('Auth API listening on http://localhost:' + PORT);
+const AUTH_BIND_HOST = process.env.AUTH_BIND_HOST || '0.0.0.0';
+server.listen(PORT, AUTH_BIND_HOST, () => {
+  const net = getDevNetworkInfo();
+  console.log(`Auth API listening on http://${AUTH_BIND_HOST}:${PORT}`);
+  if (net.otherDevicesUrl) {
+    console.log(`[forge] Other devices (same Wi‑Fi): ${net.otherDevicesUrl}`);
+  }
   console.log('[universal] embedded backend mounted at /universal (models:', universalModelsDir + ')');
   console.log(
     `[mysql] configured ${mysqlHost}:${mysqlPort} user=${process.env.MYSQL_USER || 'atomo'} db=${process.env.MYSQL_DATABASE || 'meshcentral'}`

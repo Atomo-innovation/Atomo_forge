@@ -13,6 +13,7 @@
     "migrate": "node scripts/db-migrate.cjs",
     "twin:install": "node scripts/install-pdeu-digital-twin.cjs",
     "lan:setup": "sudo bash scripts/setup-mdns-electron-local.sh",
+    "lan:ip": "node scripts/forge-network.cjs",
     "caddy:start": "sudo bash scripts/caddy-start-once.sh",
     "meshcentral:sync-password": "node scripts/meshcentral-sync-password.cjs",
     "build": "vite build",

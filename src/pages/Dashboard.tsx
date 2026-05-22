@@ -3,7 +3,8 @@ import { useLocation, useNavigate } from "react-router-dom";
 import DashboardSidebar from "@/components/dashboard/DashboardSidebar";
 import DashboardTopBar from "@/components/dashboard/DashboardTopBar";
 import InferenceEventsRecorder from "@/components/dashboard/InferenceEventsRecorder";
-import { clearAllDetectionEvents, updateCameraDisplayNameOnEvents } from "@/services/detectionEventsStore";
+import { clearAllDetectionEvents, listDetectionEvents, updateCameraDisplayNameOnEvents } from "@/services/detectionEventsStore";
+import { cn } from "@/lib/utils";
 import { clearExportRootDirectoryHandle } from "@/services/detectionFolderExport";
 import { clearCameraRegistry } from "@/services/cameraRegistry";
 import { clearCameraIdMap, getCameraFingerprint, getOrCreateStableCameraId } from "@/services/cameraIdentity";
@@ -173,6 +174,11 @@ const Dashboard = ({ onLogout }: { onLogout: () => void }) => {
     }
   }, [cameras]);
 
+  /** Warm events cache so the Events tab opens quickly. */
+  useEffect(() => {
+    void listDetectionEvents().catch(() => null);
+  }, []);
+
   const handleOpenLiveView = (camera: CameraConfig) => {
     setLiveViewReturn(CAMERA_PANEL_VIEWS.includes(view) ? view : "home");
     setSelectedCamera(camera);
@@ -288,8 +294,6 @@ const Dashboard = ({ onLogout }: { onLogout: () => void }) => {
         );
       case "services":
         return renderSuspended(<ServicesView />);
-      case "events":
-        return renderSuspended(<EventsView cameras={cameras} />);
       case "models":
         return renderSuspended(<ModelsView />);
       case "twin":
@@ -338,13 +342,24 @@ const Dashboard = ({ onLogout }: { onLogout: () => void }) => {
           }
         >
           <div
-            className={
+            className={cn(
               view === "twin" || view === "models"
                 ? "flex h-full min-h-0 flex-col"
-                : "mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6 sm:py-8"
-            }
+                : "mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6 sm:py-8",
+              view === "events" && "hidden",
+            )}
+            aria-hidden={view === "events"}
           >
-            {renderView()}
+            {view !== "events" ? renderView() : null}
+          </div>
+          <div
+            className={cn(
+              "mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6 sm:py-8",
+              view !== "events" && "hidden",
+            )}
+            aria-hidden={view !== "events"}
+          >
+            {renderSuspended(<EventsView cameras={cameras} />)}
           </div>
         </main>
       </div>

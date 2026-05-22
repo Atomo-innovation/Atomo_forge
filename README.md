@@ -71,19 +71,27 @@ Now open `https://electron.local` while `npm run dev` is running.
 
 ## Other devices (phone, tablet, another PC)
 
-`/etc/hosts` on your dev PC (`127.0.0.1 electron.local`) **only works on that PC**. Other devices cannot use it.
+On the **same Wi‑Fi**, other users can type **`http://electron.local`** in the browser (not `https://`).
 
-**Reliable (same Wi‑Fi):** use your PC’s LAN IP on **HTTP port 80** (Caddy must be running — `npm run caddy:start` or `npm run dev`):
+### One-time on the host PC
 
-```text
-http://192.168.1.30
+```sh
+npm run lan:setup   # sudo — installs Avahi, publishes electron.local on the LAN
 ```
 
-Replace with your IP (`npm run dev` prints `[forge] Other devices … http://…`).
+Then start the app:
 
-**Optional name:** `npm run lan:setup` (sudo) enables mDNS so some devices can open `http://electron.local`. Android/Windows support varies; the IP URL above always works if the firewall allows port 80.
+```sh
+npm run dev
+```
 
-**Do not use** `https://electron.local` on other devices unless you install/trust the local Caddy CA on each device. Use **http://** and the IP.
+`npm run dev` also tries to start Avahi automatically. In the app: **Settings → Open on other devices** shows the URL to copy.
+
+**Fallback** if a device cannot resolve `.local` (some Android/Windows networks): use the LAN IP printed in the terminal, e.g. `http://192.168.1.30`.
+
+**Do not use** `https://electron.local` on other devices unless you install/trust the local Caddy CA on each device.
+
+This dev PC may still use `https://electron.local` via `/etc/hosts` (`127.0.0.1 electron.local`); that entry does not affect other devices.
 
 **Firewall (Ubuntu):** if the phone cannot connect:
 

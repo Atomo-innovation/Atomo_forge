@@ -28,8 +28,11 @@ hostnamectl set-hostname electron
 systemctl enable --now avahi-daemon || true
 
 echo ""
-echo "mDNS enabled."
-echo "Other devices on the same LAN can open: http://electron.local"
+echo "mDNS enabled — hostname publishes as electron.local on this LAN."
+echo "Other devices (same Wi‑Fi) can type in the browser:"
+echo "  http://electron.local"
 echo ""
-echo "Note: HTTPS on other devices requires trusting your local CA certificate."
+echo "Then run: npm run dev"
+echo "Note: use http:// on other devices, not https:// (unless you install the Caddy CA)."
+echo "This PC may still use https://electron.local via /etc/hosts if you added 127.0.0.1 electron.local"
 

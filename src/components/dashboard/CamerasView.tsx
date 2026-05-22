@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Play, Trash2, LayoutGrid, List, PencilLine } from "lucide-react";
 import { type CameraConfig, type CameraWorkspaceId } from "@/pages/Dashboard";
-import { DETECTION_EVENTS_CHANGED_EVENT, listDetectionEvents, type StoredDetectionEvent } from "@/services/detectionEventsStore";
+import type { StoredDetectionEvent } from "@/services/detectionEventsStore";
+import { useDetectionEvents } from "@/hooks/useDetectionEvents";
+import { loadDetectionEventThumbUrls, revokeThumbUrls } from "@/services/detectionEventThumbs";
 import {
   EXPORT_FOLDER_LINK_CHANGED,
   clearExportRootDirectoryHandle,
@@ -42,7 +44,7 @@ const CamerasView = ({
 }: Props) => {
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [renameTarget, setRenameTarget] = useState<CameraConfig | null>(null);
-  const [events, setEvents] = useState<StoredDetectionEvent[]>([]);
+  const { events } = useDetectionEvents(1000);
   const [recentThumbUrls, setRecentThumbUrls] = useState<Record<string, string>>({});
   const recentThumbUrlsRef = useRef<Record<string, string>>({});
   const [detectionLayout, setDetectionLayout] = useState<"table" | "gallery">("table");
@@ -50,14 +52,6 @@ const CamerasView = ({
   const [folderMsg, setFolderMsg] = useState<string | null>(null);
   const [detectionPage, setDetectionPage] = useState(1);
   const fsSupported = isFolderDiskExportSupported();
-
-  useEffect(() => {
-    const reload = () => void listDetectionEvents().then(setEvents).catch(() => setEvents([]));
-    reload();
-    const onChanged = () => reload();
-    window.addEventListener(DETECTION_EVENTS_CHANGED_EVENT, onChanged as EventListener);
-    return () => window.removeEventListener(DETECTION_EVENTS_CHANGED_EVENT, onChanged as EventListener);
-  }, []);
 
   const refreshFolderLink = () => {
     void loadExportRootDirectoryHandle().then((h) => setFolderLinked(Boolean(h)));
@@ -125,27 +119,35 @@ const CamerasView = ({
 
   const detectionSafePage = Math.min(detectionPage, detectionTotalPages);
 
+  const detectionThumbIds = useMemo(() => detectionPageSlice.map((e) => e.id), [detectionPageSlice]);
+
   useEffect(() => {
-    const prev = recentThumbUrlsRef.current;
-    const next: Record<string, string> = {};
-
-    for (const e of recentEvents) {
-      const existing = prev[e.id];
-      next[e.id] = existing ?? URL.createObjectURL(e.cropImage);
-    }
-
-    for (const [id, url] of Object.entries(prev)) {
-      if (!next[id]) URL.revokeObjectURL(url);
-    }
-
-    recentThumbUrlsRef.current = next;
-    setRecentThumbUrls(next);
-  }, [recentEvents]);
+    let cancelled = false;
+    void loadDetectionEventThumbUrls(detectionThumbIds).then((loaded) => {
+      if (cancelled) {
+        revokeThumbUrls(loaded);
+        return;
+      }
+      const prev = recentThumbUrlsRef.current;
+      const next: Record<string, string> = {};
+      for (const id of detectionThumbIds) {
+        const url = loaded[id] ?? prev[id];
+        if (url) next[id] = url;
+      }
+      for (const [id, url] of Object.entries(prev)) {
+        if (!detectionThumbIds.includes(id)) URL.revokeObjectURL(url);
+      }
+      recentThumbUrlsRef.current = next;
+      setRecentThumbUrls(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [detectionThumbIds]);
 
   useEffect(() => {
     return () => {
-      const cur = recentThumbUrlsRef.current;
-      for (const url of Object.values(cur)) URL.revokeObjectURL(url);
+      revokeThumbUrls(recentThumbUrlsRef.current);
       recentThumbUrlsRef.current = {};
     };
   }, []);

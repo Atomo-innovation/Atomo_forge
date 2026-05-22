@@ -12,12 +12,13 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
-  DETECTION_EVENTS_CHANGED_EVENT,
   clearAllDetectionEvents,
   deleteDetectionEvent,
-  listDetectionEvents,
+  getDetectionEventById,
   type StoredDetectionEvent,
 } from "@/services/detectionEventsStore";
+import { useDetectionEvents } from "@/hooks/useDetectionEvents";
+import { loadDetectionEventThumbUrls, revokeThumbUrls } from "@/services/detectionEventThumbs";
 import { useModels } from "@/hooks/useModels";
 import { getCameraSnapshot } from "@/services/cameraRegistry";
 import {
@@ -49,9 +50,10 @@ function formatDateTime(ts: number): string {
 const EventDetailDialog = lazy(() => import("@/components/dashboard/EventDetailDialog"));
 
 const EventsView = ({ cameras }: { cameras: CameraConfig[] }) => {
-  const [events, setEvents] = useState<StoredDetectionEvent[]>([]);
+  const { events, loading } = useDetectionEvents();
   const [thumbUrls, setThumbUrls] = useState<Record<string, string>>({});
   const thumbUrlsRef = useRef<Record<string, string>>({});
+  const [detailEvent, setDetailEvent] = useState<StoredDetectionEvent | null>(null);
   const [query, setQuery] = useState("");
   const [service, setService] = useState<string>("all");
   const [camera, setCamera] = useState<string>("all");
@@ -65,17 +67,6 @@ const EventsView = ({ cameras }: { cameras: CameraConfig[] }) => {
   const [confirmClearAllOpen, setConfirmClearAllOpen] = useState(false);
   const { models } = useModels();
 
-  const reload = () => {
-    void listDetectionEvents().then(setEvents);
-  };
-
-  useEffect(() => {
-    reload();
-    const onChanged = () => reload();
-    window.addEventListener(DETECTION_EVENTS_CHANGED_EVENT, onChanged as EventListener);
-    return () => window.removeEventListener(DETECTION_EVENTS_CHANGED_EVENT, onChanged as EventListener);
-  }, []);
-
   const refreshFolderLink = () => {
     void loadExportRootDirectoryHandle().then((h) => setFolderLinked(Boolean(h)));
   };
@@ -85,33 +76,6 @@ const EventsView = ({ cameras }: { cameras: CameraConfig[] }) => {
     const onLink = () => refreshFolderLink();
     window.addEventListener(EXPORT_FOLDER_LINK_CHANGED, onLink as EventListener);
     return () => window.removeEventListener(EXPORT_FOLDER_LINK_CHANGED, onLink as EventListener);
-  }, []);
-
-  useEffect(() => {
-    // Incrementally manage object URLs to avoid recreating URLs for *all* events on each refresh.
-    const prev = thumbUrlsRef.current;
-    const next: Record<string, string> = {};
-
-    for (const e of events) {
-      const existing = prev[e.id];
-      next[e.id] = existing ?? URL.createObjectURL(e.cropImage);
-    }
-
-    // Revoke any URLs that are no longer used.
-    for (const [id, url] of Object.entries(prev)) {
-      if (!next[id]) URL.revokeObjectURL(url);
-    }
-
-    thumbUrlsRef.current = next;
-    setThumbUrls(next);
-  }, [events]);
-
-  useEffect(() => {
-    return () => {
-      const cur = thumbUrlsRef.current;
-      for (const url of Object.values(cur)) URL.revokeObjectURL(url);
-      thumbUrlsRef.current = {};
-    };
   }, []);
 
   const rows = useMemo(() => {
@@ -196,10 +160,61 @@ const EventsView = ({ cameras }: { cameras: CameraConfig[] }) => {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
 
-  const detailEvent = useMemo(
-    () => (detailId ? events.find((e) => e.id === detailId) ?? null : null),
-    [detailId, events],
-  );
+  const visibleThumbIds = useMemo(() => {
+    const ids = pageSlice.map((r) => r.id);
+    if (detailId) ids.push(detailId);
+    return ids;
+  }, [pageSlice, detailId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadDetectionEventThumbUrls(visibleThumbIds).then((loaded) => {
+      if (cancelled) {
+        revokeThumbUrls(loaded);
+        return;
+      }
+      const prev = thumbUrlsRef.current;
+      const next: Record<string, string> = {};
+      for (const id of visibleThumbIds) {
+        const url = loaded[id] ?? prev[id];
+        if (url) next[id] = url;
+      }
+      for (const [id, url] of Object.entries(prev)) {
+        if (!visibleThumbIds.includes(id)) URL.revokeObjectURL(url);
+      }
+      thumbUrlsRef.current = next;
+      setThumbUrls(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [visibleThumbIds]);
+
+  useEffect(() => {
+    return () => {
+      revokeThumbUrls(thumbUrlsRef.current);
+      thumbUrlsRef.current = {};
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!detailId) {
+      setDetailEvent(null);
+      return;
+    }
+    const meta = events.find((e) => e.id === detailId) ?? null;
+    if (!meta) {
+      setDetailId(null);
+      return;
+    }
+    let cancelled = false;
+    void getDetectionEventById(detailId).then((full) => {
+      if (!cancelled) setDetailEvent(full ?? meta);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [detailId, events]);
 
   useEffect(() => {
     if (detailId && !events.some((e) => e.id === detailId)) setDetailId(null);
@@ -210,6 +225,9 @@ const EventsView = ({ cameras }: { cameras: CameraConfig[] }) => {
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
         <div>
           <div className="text-3xl font-bold">Events</div>
+          {loading && events.length === 0 ? (
+            <p className="text-sm text-muted-foreground mt-1">Loading events…</p>
+          ) : null}
           <p className="text-sm text-muted-foreground max-w-3xl mt-1">
             All saved detections with crop images live here. Use the <span className="font-medium text-foreground">table</span>{" "}
             or <span className="font-medium text-foreground">gallery</span> view, then <span className="font-medium text-foreground">click any row or card</span> for full-size image and JSON. If you linked a disk folder, the same data is also under{" "}

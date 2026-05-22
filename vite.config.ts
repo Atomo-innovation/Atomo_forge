@@ -6,10 +6,24 @@ import net from "node:net";
 import { createRequire } from "node:module";
 import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import os from "node:os";
 import type { Plugin } from "vite";
 import { componentTagger } from "lovable-tagger";
 
 const __viteRootDir = path.dirname(fileURLToPath(import.meta.url));
+
+function detectLanIPv4(): string | undefined {
+  const fromEnv = process.env.FORGE_LAN_IP || process.env.VITE_LAN_HTTP_URL?.replace(/^https?:\/\//, "").split("/")[0];
+  if (fromEnv && /^\d{1,3}(\.\d{1,3}){3}$/.test(fromEnv)) return fromEnv;
+  const ifaces = os.networkInterfaces();
+  for (const name of Object.keys(ifaces)) {
+    if (/^(lo|docker|br-|veth|virbr)/i.test(name)) continue;
+    for (const addr of ifaces[name] || []) {
+      if (addr.family === "IPv4" && !addr.internal) return addr.address;
+    }
+  }
+  return undefined;
+}
 const twinRequire = createRequire(import.meta.url);
 
 /** Same `.env` + `.env.local` merge as the twin launcher so Vite’s proxy targets the correct port. */
@@ -157,16 +171,22 @@ function makeQuietLogger() {
   } as ReturnType<typeof createLogger>;
 }
 
-/** Remind devs that Vite is on :8443 when Caddy :443 is not running. */
-function forgeDevUrlBannerPlugin(host: string, port: number) {
+/** Remind devs of this-PC vs LAN URLs when the dev server starts. */
+function forgeDevUrlBannerPlugin(host: string, port: number, lanHttpUrl?: string) {
   const url = `https://${host}:${port}/`;
   return {
     name: "forge-dev-url-banner",
     configureServer(server: { httpServer?: { once: (e: string, fn: () => void) => void } }) {
       server.httpServer?.once("listening", () => {
-        const lan = process.env.FORGE_LAN_IP;
         console.info(`\n[forge] This PC: ${url}`);
-        if (lan) console.info(`[forge] Other devices (same Wi‑Fi): http://${lan}`);
+        const other =
+          process.env.FORGE_OTHER_DEVICES_URL ||
+          process.env.VITE_OTHER_DEVICES_URL ||
+          (lanHttpUrl ? `http://electron.local (mDNS) or ${lanHttpUrl}` : "");
+        if (other) {
+          console.info(`[forge] Other devices (same Wi‑Fi): ${other}`);
+          console.info("[forge] They should type http://electron.local (run npm run lan:setup once if that fails).");
+        }
         console.info("[forge] https://electron.local/ needs Caddy on :443 — run: npm run caddy:start\n");
       });
     },
@@ -183,6 +203,12 @@ export default defineConfig(({ mode }) => {
     Number(env.TWIN_HTTP_PORT || process.env.TWIN_HTTP_PORT || 3000) || 3000;
   const devHost = env.VITE_DEV_HOST || "electron.local";
   const devPort = Number(env.VITE_DEV_PORT || 8443);
+  const lanIp = detectLanIPv4();
+  const lanHttpUrl =
+    (env.VITE_LAN_HTTP_URL || process.env.FORGE_LAN_HTTP_URL || (lanIp ? `http://${lanIp}` : "")).replace(
+      /\/$/,
+      "",
+    ) || undefined;
   const extraAllowedHosts = (env.VITE_ALLOWED_HOSTS || "")
     .split(",")
     .map((s) => s.trim())
@@ -221,6 +247,10 @@ export default defineConfig(({ mode }) => {
   return ({
     define: {
       "import.meta.env.VITE_FORGE_TWIN_PROXY_PORT": JSON.stringify(String(twinHttpPort)),
+      "import.meta.env.VITE_LAN_HTTP_URL": JSON.stringify(lanHttpUrl ?? ""),
+      "import.meta.env.VITE_OTHER_DEVICES_URL": JSON.stringify(
+        process.env.VITE_OTHER_DEVICES_URL || process.env.FORGE_OTHER_DEVICES_URL || "",
+      ),
     },
   customLogger: makeQuietLogger(),
   server: {
@@ -233,10 +263,10 @@ export default defineConfig(({ mode }) => {
     // true = allow phones/tablets hitting http://<LAN-IP> via Caddy :80
     allowedHosts:
       env.FORGE_ALLOWED_HOSTS_STRICT === "1"
-        ? Array.from(new Set([devHost, env.FORGE_LAN_IP, ...extraAllowedHosts].filter(Boolean)))
+        ? Array.from(new Set([devHost, lanIp, env.FORGE_LAN_IP, ...extraAllowedHosts].filter(Boolean)))
         : true,
     https: devHttps,
-    origin: `https://${devHost}:${devPort}`,
+    // No fixed origin — works for this PC (electron.local:8443) and LAN (http://<IP> via Caddy :80).
     open:
       env.FORGE_DEV_OPEN === "0"
         ? false
@@ -260,7 +290,7 @@ export default defineConfig(({ mode }) => {
     proxy: forgeDevProxy,
   },
   plugins: [
-    forgeDevUrlBannerPlugin(devHost, devPort),
+    forgeDevUrlBannerPlugin(devHost, devPort, lanHttpUrl),
     pdeuTwinAutoStartPlugin(__viteRootDir, twinHttpPort),
     react(),
     mode === "development" && componentTagger(),
