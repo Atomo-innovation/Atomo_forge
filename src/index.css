@@ -94,14 +94,15 @@
     --input: 217 22% 18%;
     --ring: 36 96% 56%;
 
-    --sidebar-background: 222 47% 7%;
+    /* Sidebar: same cool slate family as canvas/cards — separation by border only */
+    --sidebar-background: 222 47% 8%;
     --sidebar-foreground: 210 40% 96%;
-    --sidebar-primary: 36 96% 58%;
-    --sidebar-primary-foreground: 222 47% 7%;
+    --sidebar-primary: 36 90% 54%;
+    --sidebar-primary-foreground: 222 47% 8%;
     --sidebar-accent: 217 28% 14%;
     --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 217 22% 16%;
-    --sidebar-ring: 36 96% 58%;
+    --sidebar-border: 217 22% 18%;
+    --sidebar-ring: 36 90% 54%;
 
     --glow-primary: 36 96% 56%;
     --glow-accent: 168 45% 44%;
@@ -262,8 +263,19 @@
     @apply inline-flex items-center justify-center rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50;
   }
 
-  .bg-sidebar {
+  /* Login hero only — do not override dashboard .bg-sidebar */
+  .auth-hero-bg {
     background-color: hsl(0deg 0% 37.77%);
+  }
+
+  .dashboard-sidebar {
+    background-color: hsl(var(--sidebar-background));
+    color: hsl(var(--sidebar-foreground));
+  }
+
+  .dark .dashboard-sidebar {
+    background-color: hsl(var(--sidebar-background));
+    border-right-color: hsl(var(--border));
   }
 
   /* Subtle mesh for depth (optional utility) */
@@ -276,7 +288,7 @@
 
   .dark .bg-app-mesh {
     background-image:
-      radial-gradient(ellipse 120% 80% at 100% -10%, hsl(var(--primary) / 0.12), transparent 52%),
-      radial-gradient(ellipse 90% 60% at 0% 110%, hsl(var(--accent) / 0.08), transparent 48%);
+      radial-gradient(ellipse 120% 80% at 100% -10%, hsl(var(--primary) / 0.08), transparent 52%),
+      radial-gradient(ellipse 90% 60% at 0% 110%, hsl(var(--accent) / 0.05), transparent 48%);
   }
 }

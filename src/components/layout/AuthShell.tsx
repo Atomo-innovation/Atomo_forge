@@ -32,7 +32,7 @@ export function AuthShell({
         forceLight && "auth-theme-light",
       )}
     >
-      <div className="relative hidden flex-1 flex-col justify-between overflow-hidden border-r border-border/60 bg-sidebar text-sidebar-foreground lg:flex">
+      <div className="auth-hero-bg relative hidden flex-1 flex-col justify-between overflow-hidden border-r border-white/10 text-sidebar-foreground lg:flex">
         {heroVideoSrc ? (
           <>
             <video

@@ -55,7 +55,7 @@ const DashboardSidebar = ({ currentView, onNavigate, open, onToggle }: Props) =>
   return (
     <aside
       className={cn(
-        "flex h-screen shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar transition-[width] duration-300 ease-out",
+        "dashboard-sidebar flex h-screen shrink-0 flex-col overflow-hidden border-r border-sidebar-border transition-[width] duration-300 ease-out",
         open ? "w-64" : "w-[4.25rem]",
       )}
     >
@@ -106,7 +106,9 @@ const DashboardSidebar = ({ currentView, onNavigate, open, onToggle }: Props) =>
         {navGroups.map((group) => (
           <div key={group.label}>
             {open ? (
-              <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/45">{group.label}</p>
+              <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                {group.label}
+              </p>
             ) : (
               <div className="mx-auto mb-2 h-px w-8 bg-sidebar-border" aria-hidden />
             )}
@@ -120,16 +122,20 @@ const DashboardSidebar = ({ currentView, onNavigate, open, onToggle }: Props) =>
                       onClick={() => onNavigate(item.id)}
                       title={!open ? item.label : undefined}
                       className={cn(
-                        "relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                        "flex w-full items-center gap-3 rounded-lg py-2.5 text-sm font-medium transition-colors",
+                        open ? "px-3" : "justify-center px-0",
                         active
-                          ? "bg-sidebar-accent text-sidebar-primary"
-                          : "text-sidebar-foreground/85 hover:bg-sidebar-accent/80 hover:text-sidebar-foreground",
+                          ? cn(
+                              "bg-sidebar-accent text-sidebar-foreground",
+                              open && "border-l-2 border-primary pl-[10px]",
+                            )
+                          : cn(
+                              "text-sidebar-foreground/70 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground",
+                              open && "border-l-2 border-transparent pl-[10px]",
+                            ),
                       )}
                     >
-                      {active ? (
-                        <span className="absolute left-0 top-1/2 h-6 w-0.5 -translate-y-1/2 rounded-full bg-sidebar-primary" aria-hidden />
-                      ) : null}
-                      <item.icon className={cn("h-[1.125rem] w-[1.125rem] shrink-0", active && "text-sidebar-primary")} />
+                      <item.icon className={cn("h-[1.125rem] w-[1.125rem] shrink-0", active ? "text-primary" : "text-sidebar-foreground/60")} />
                       {open ? <span className="truncate">{item.label}</span> : null}
                     </button>
                   </li>
@@ -142,8 +148,8 @@ const DashboardSidebar = ({ currentView, onNavigate, open, onToggle }: Props) =>
 
       {open ? (
         <div className="border-t border-sidebar-border px-4 py-4">
-          <p className="text-xs text-sidebar-foreground/50">Atomo Processing Unit</p>
-          <p className="mt-0.5 font-mono text-[10px] text-sidebar-foreground/40">v2.1.0</p>
+          <p className="text-xs text-muted-foreground">Atomo Processing Unit</p>
+          <p className="mt-0.5 font-mono text-[10px] text-muted-foreground/80">v2.1.0</p>
         </div>
       ) : null}
     </aside>
