@@ -115,16 +115,7 @@ const LoginScreen = ({ onGetStarted, onLoginSuccess }: LoginScreenProps) => {
       description="Use your Atomic Center credentials to access the dashboard."
       icon={<Cpu className="h-6 w-6" />}
       heroVideoSrc={LOGIN_HERO_VIDEO}
-      footer={
-        <a
-          href={createAccountHref}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-sm font-medium text-primary hover:underline"
-        >
-          Create account
-        </a>
-      }
+      forceLight
     >
       <form onSubmit={handleSubmit} className="space-y-5">
         {error ? (
@@ -166,6 +157,16 @@ const LoginScreen = ({ onGetStarted, onLoginSuccess }: LoginScreenProps) => {
             "Sign in"
           )}
         </button>
+        <p className="pt-1 text-center text-sm text-muted-foreground">
+          <a
+            href={createAccountHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium text-primary hover:underline"
+          >
+            Create account
+          </a>
+        </p>
       </form>
     </AuthShell>
   );

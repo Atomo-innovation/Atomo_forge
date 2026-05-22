@@ -59,6 +59,7 @@
   }
 
   .dark {
+    /* Dark dashboard: warm amber CTAs (not blue) + muted teal accents */
     --background: 222 47% 6%;
     --foreground: 210 40% 98%;
 
@@ -68,45 +69,87 @@
     --popover: 222 47% 9%;
     --popover-foreground: 210 40% 98%;
 
-    --primary: 217 91% 60%;
-    --primary-foreground: 222 47% 8%;
+    --primary: 36 96% 56%;
+    --primary-foreground: 222 47% 7%;
 
-    --secondary: 217 33% 14%;
+    --secondary: 217 28% 15%;
     --secondary-foreground: 210 40% 96%;
 
-    --muted: 217 33% 14%;
-    --muted-foreground: 215 20% 65%;
+    --muted: 217 28% 15%;
+    --muted-foreground: 215 18% 62%;
 
-    --accent: 199 89% 48%;
-    --accent-foreground: 222 47% 8%;
+    --accent: 168 45% 44%;
+    --accent-foreground: 210 40% 98%;
 
     --destructive: 0 72% 52%;
     --destructive-foreground: 0 0% 100%;
 
-    --success: 152 65% 42%;
-    --success-foreground: 240 15% 8%;
+    --success: 152 58% 40%;
+    --success-foreground: 210 40% 98%;
 
     --warning: 38 96% 54%;
-    --warning-foreground: 240 15% 9%;
+    --warning-foreground: 222 47% 8%;
 
-    --border: 240 8% 17%;
-    --input: 240 8% 17%;
-    --ring: 217 91% 60%;
+    --border: 217 22% 18%;
+    --input: 217 22% 18%;
+    --ring: 36 96% 56%;
 
     --sidebar-background: 222 47% 7%;
     --sidebar-foreground: 210 40% 96%;
-    --sidebar-primary: 217 91% 60%;
-    --sidebar-primary-foreground: 222 47% 8%;
-    --sidebar-accent: 217 33% 14%;
+    --sidebar-primary: 36 96% 58%;
+    --sidebar-primary-foreground: 222 47% 7%;
+    --sidebar-accent: 217 28% 14%;
     --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 217 33% 16%;
-    --sidebar-ring: 217 91% 60%;
+    --sidebar-border: 217 22% 16%;
+    --sidebar-ring: 36 96% 58%;
 
-    --glow-primary: 217 91% 60%;
-    --glow-accent: 199 89% 48%;
+    --glow-primary: 36 96% 56%;
+    --glow-accent: 168 45% 44%;
 
-    --gradient-from: 217 91% 60%;
-    --gradient-to: 199 89% 48%;
+    --gradient-from: 36 96% 52%;
+    --gradient-to: 168 48% 38%;
+  }
+
+  /* Login (and optional auth) — always light palette even when html has .dark */
+  .auth-theme-light {
+    color-scheme: light;
+    --background: 220 20% 97%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 221 83% 48%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 9% 46%;
+    --accent: 199 89% 42%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 72% 48%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 152 69% 36%;
+    --success-foreground: 0 0% 100%;
+    --warning: 34 96% 48%;
+    --warning-foreground: 222 47% 11%;
+    --border: 220 13% 87%;
+    --input: 220 13% 87%;
+    --ring: 221 83% 48%;
+    --sidebar-background: 222 47% 11%;
+    --sidebar-foreground: 210 40% 96%;
+    --sidebar-primary: 221 83% 53%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 217 33% 17%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 217 33% 20%;
+    --sidebar-ring: 221 83% 53%;
+    --glow-primary: 221 83% 48%;
+    --glow-accent: 199 89% 42%;
+    --gradient-from: 221 83% 48%;
+    --gradient-to: 199 89% 42%;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
   }
 }
 
@@ -217,6 +260,10 @@
 
   .btn-primary-gradient {
     @apply inline-flex items-center justify-center rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .bg-sidebar {
+    background-color: hsl(0deg 0% 37.77%);
   }
 
   /* Subtle mesh for depth (optional utility) */

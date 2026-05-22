@@ -10,12 +10,28 @@ interface AuthShellProps {
   footer?: ReactNode;
   /** e.g. `/atomo12.webm` — plays on the left hero panel (large screens). */
   heroVideoSrc?: string;
+  /** Keep login/register on light theme when dashboard is in dark mode. */
+  forceLight?: boolean;
 }
 
 /** Centered auth / onboarding card with brand panel on large screens. */
-export function AuthShell({ title, description, icon, children, maxWidth = "md", footer, heroVideoSrc }: AuthShellProps) {
+export function AuthShell({
+  title,
+  description,
+  icon,
+  children,
+  maxWidth = "md",
+  footer,
+  heroVideoSrc,
+  forceLight = false,
+}: AuthShellProps) {
   return (
-    <div className="relative flex min-h-screen flex-col lg:flex-row">
+    <div
+      className={cn(
+        "relative flex min-h-screen flex-col lg:flex-row",
+        forceLight && "auth-theme-light",
+      )}
+    >
       <div className="relative hidden flex-1 flex-col justify-between overflow-hidden border-r border-border/60 bg-sidebar text-sidebar-foreground lg:flex">
         {heroVideoSrc ? (
           <>
@@ -42,7 +58,7 @@ export function AuthShell({ title, description, icon, children, maxWidth = "md",
 
         <div className="relative z-10 flex flex-1 flex-col justify-between p-10">
           <div>
-            <p className="text-sm font-medium uppercase tracking-widest text-sidebar-foreground/80">Atomo Forge</p>
+            <p className="text-sm font-medium uppercase tracking-widest text-sidebar-foreground/80">Atomo</p>
             <h1 className="mt-6 max-w-md text-3xl font-semibold leading-tight tracking-tight drop-shadow-sm">
               Edge intelligence for your processing unit
             </h1>
