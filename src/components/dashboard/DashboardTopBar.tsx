@@ -7,16 +7,34 @@ import {
   type DeviceProfile,
 } from "@/services/deviceProfile";
 import { useAuthUsername } from "@/contexts/AuthUsernameContext";
+import { cn } from "@/lib/utils";
 
 interface Props {
   onToggleSidebar: () => void;
 }
 
-const StatusPill = ({ icon: Icon, label, value, color }: { icon: React.ElementType; label: string; value: string; color: string }) => (
-  <div className="flex items-center gap-2 rounded-xl border border-border/70 bg-muted/50 px-3 py-1.5 backdrop-blur-sm dark:bg-muted/35">
-    <Icon className={`h-3.5 w-3.5 ${color}`} />
-    <span className="hidden text-xs text-muted-foreground md:inline">{label}</span>
-    <span className="font-mono text-xs font-semibold tabular-nums text-foreground">{value}</span>
+const StatusPill = ({
+  icon: Icon,
+  label,
+  value,
+  color,
+  className,
+}: {
+  icon: React.ElementType;
+  label: string;
+  value: string;
+  color: string;
+  className?: string;
+}) => (
+  <div
+    className={cn(
+      "flex items-center gap-2 rounded-lg border border-border/60 bg-muted/40 px-2.5 py-1.5",
+      className,
+    )}
+  >
+    <Icon className={cn("h-3.5 w-3.5", color)} />
+    <span className="hidden text-[11px] text-muted-foreground lg:inline">{label}</span>
+    <span className="font-mono text-xs font-medium tabular-nums text-foreground">{value}</span>
   </div>
 );
 
@@ -28,8 +46,7 @@ const DashboardTopBar = ({ onToggleSidebar }: Props) => {
   useEffect(() => setMode(getThemeMode()), []);
 
   useEffect(() => {
-    const refresh = () =>
-      setProfile(getDeviceProfile(sessionUser ?? undefined));
+    const refresh = () => setProfile(getDeviceProfile(sessionUser ?? undefined));
     refresh();
     window.addEventListener(DEVICE_PROFILE_CHANGED_EVENT, refresh);
     window.addEventListener("storage", refresh);
@@ -50,69 +67,64 @@ const DashboardTopBar = ({ onToggleSidebar }: Props) => {
   const serial = profile?.serialNumber?.trim() || "APU-2026-E7K3";
 
   return (
-    <header className="flex h-16 shrink-0 items-center justify-between border-b border-border/80 bg-card/90 px-4 shadow-sm backdrop-blur-md dark:bg-card/75 md:px-6">
-      <div className="flex items-center gap-4">
+    <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border/80 bg-card/95 px-4 backdrop-blur-md md:px-6">
+      <div className="flex min-w-0 items-center gap-3">
         <button
           type="button"
           onClick={onToggleSidebar}
-          className="rounded-xl p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:hidden"
+          className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:hidden"
           aria-label="Open menu"
         >
           <Menu className="h-5 w-5" />
         </button>
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="h-2 w-2 animate-pulse rounded-full bg-success shadow-[0_0_10px_hsl(var(--success)/0.65)]" />
-          <div className="flex flex-col min-w-0 leading-tight">
-            <span className="text-sm font-semibold tracking-tight truncate" title={deviceName}>
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="relative flex h-2.5 w-2.5 shrink-0">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-40" />
+            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-success" />
+          </span>
+          <div className="min-w-0 leading-tight">
+            <p className="truncate text-sm font-semibold text-foreground" title={deviceName}>
               {deviceName}
-            </span>
-            {sessionUser ? (
-              <span
-                className="text-[10px] text-muted-foreground truncate -mt-0.5"
-                title={`Signed in as ${sessionUser}`}
-              >
-                @{sessionUser}
-              </span>
-            ) : null}
-            <span className="font-mono text-[11px] text-muted-foreground truncate" title={orgName ? `${orgName} • ${serial}` : serial}>
-              {orgName ? `${orgName} • ` : ""}
+            </p>
+            <p className="truncate font-mono text-[11px] text-muted-foreground" title={orgName ? `${orgName} · ${serial}` : serial}>
+              {sessionUser ? `@${sessionUser} · ` : ""}
+              {orgName ? `${orgName} · ` : ""}
               {serial}
-            </span>
+            </p>
           </div>
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
         <button
           type="button"
           onClick={toggle}
-          className="group relative flex h-10 items-center gap-1 rounded-full border border-border/90 bg-gradient-to-b from-card to-muted/40 p-1 shadow-inner dark:from-card dark:to-muted/25"
+          className="flex h-9 items-center gap-0.5 rounded-lg border border-border/70 bg-muted/30 p-0.5"
           aria-label={mode === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-          title={mode === "dark" ? "Light mode" : "Dark mode"}
         >
           <span
-            className={`flex h-8 w-8 items-center justify-center rounded-full transition-all duration-300 ${
-              mode === "light"
-                ? "bg-gradient-atomic text-primary-foreground shadow-md glow-primary-sm"
-                : "text-muted-foreground group-hover:text-foreground"
-            }`}
+            className={cn(
+              "flex h-7 w-7 items-center justify-center rounded-md transition-colors",
+              mode === "light" ? "bg-primary text-primary-foreground" : "text-muted-foreground",
+            )}
           >
-            <Sun className="h-4 w-4" />
+            <Sun className="h-3.5 w-3.5" />
           </span>
           <span
-            className={`flex h-8 w-8 items-center justify-center rounded-full transition-all duration-300 ${
-              mode === "dark"
-                ? "bg-gradient-atomic text-primary-foreground shadow-md glow-primary-sm"
-                : "text-muted-foreground group-hover:text-foreground"
-            }`}
+            className={cn(
+              "flex h-7 w-7 items-center justify-center rounded-md transition-colors",
+              mode === "dark" ? "bg-primary text-primary-foreground" : "text-muted-foreground",
+            )}
           >
-            <Moon className="h-4 w-4" />
+            <Moon className="h-3.5 w-3.5" />
           </span>
         </button>
-        <StatusPill icon={Cpu} label="CPU" value="23%" color="text-primary" />
-        <StatusPill icon={Activity} label="NPU" value="67%" color="text-accent" />
-        <StatusPill icon={Thermometer} label="Temp" value="42°C" color="text-success" />
-        <StatusPill icon={Wifi} label="Network" value="1Gbps" color="text-primary" />
+        <div className="hidden items-center gap-1.5 md:flex">
+          <StatusPill icon={Cpu} label="CPU" value="23%" color="text-primary" />
+          <StatusPill icon={Activity} label="NPU" value="67%" color="text-accent" />
+          <StatusPill icon={Thermometer} label="Temp" value="42°C" color="text-success" />
+          <StatusPill icon={Wifi} label="Net" value="1G" color="text-primary" className="hidden xl:flex" />
+        </div>
       </div>
     </header>
   );

@@ -157,6 +157,22 @@ function makeQuietLogger() {
   } as ReturnType<typeof createLogger>;
 }
 
+/** Remind devs that Vite is on :8443 when Caddy :443 is not running. */
+function forgeDevUrlBannerPlugin(host: string, port: number) {
+  const url = `https://${host}:${port}/`;
+  return {
+    name: "forge-dev-url-banner",
+    configureServer(server: { httpServer?: { once: (e: string, fn: () => void) => void } }) {
+      server.httpServer?.once("listening", () => {
+        const lan = process.env.FORGE_LAN_IP;
+        console.info(`\n[forge] This PC: ${url}`);
+        if (lan) console.info(`[forge] Other devices (same Wi‑Fi): http://${lan}`);
+        console.info("[forge] https://electron.local/ needs Caddy on :443 — run: npm run caddy:start\n");
+      });
+    },
+  };
+}
+
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   hydrateForgeDotEnv();
@@ -214,9 +230,20 @@ export default defineConfig(({ mode }) => {
     port: devPort,
     strictPort: false,
     // Allow access via electron.local and via LAN IP/hostname for other devices.
-    allowedHosts: Array.from(new Set([devHost, ...extraAllowedHosts])),
+    // true = allow phones/tablets hitting http://<LAN-IP> via Caddy :80
+    allowedHosts:
+      env.FORGE_ALLOWED_HOSTS_STRICT === "1"
+        ? Array.from(new Set([devHost, env.FORGE_LAN_IP, ...extraAllowedHosts].filter(Boolean)))
+        : true,
     https: devHttps,
     origin: `https://${devHost}:${devPort}`,
+    open:
+      env.FORGE_DEV_OPEN === "0"
+        ? false
+        : env.FORGE_DEV_OPEN_URL ||
+          (env.FORGE_OPEN_NO_PORT === "1"
+            ? `https://${devHost}/`
+            : `https://${devHost}:${devPort}/`),
     hmr: {
       host: devHost,
       clientPort: devPort,
@@ -233,6 +260,7 @@ export default defineConfig(({ mode }) => {
     proxy: forgeDevProxy,
   },
   plugins: [
+    forgeDevUrlBannerPlugin(devHost, devPort),
     pdeuTwinAutoStartPlugin(__viteRootDir, twinHttpPort),
     react(),
     mode === "development" && componentTagger(),

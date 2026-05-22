@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { Cpu } from "lucide-react";
 import { authApiUrl } from "@/services/authApiUrl";
 import { persistMeshLoginCredential } from "@/services/authSession";
+import { AuthShell } from "@/components/layout/AuthShell";
 
 interface LoginScreenProps {
   onGetStarted: () => void;
@@ -16,8 +17,10 @@ type ApiErrorPayload = {
   details?: { code?: string | null; address?: string | null; port?: number | null };
 };
 
+/** Board showcase — served from `public/atomo12.webm`. */
+const LOGIN_HERO_VIDEO = `${import.meta.env.BASE_URL}atomo12.webm`;
+
 const LoginScreen = ({ onGetStarted, onLoginSuccess }: LoginScreenProps) => {
-  /** MeshCentral web UI URL (Create account link uses this). */
   const defaultMeshCentralBaseUrl = "https://65.2.142.160:4434";
 
   const [meshCentralUrlFromApi, setMeshCentralUrlFromApi] = useState<string | null>(null);
@@ -29,11 +32,9 @@ const LoginScreen = ({ onGetStarted, onLoginSuccess }: LoginScreenProps) => {
         const r = await fetch("/api/meshcentral/status");
         const j = await r.json().catch(() => null);
         if (cancelled || !j?.ok) return;
-        // Use MeshCentral "control" URL (web UI) for links like create-account/login.
         const raw = j?.controlUrl || j?.agentBaseUrl;
         if (!raw) return;
         const s = String(raw).trim();
-        // Backend controlUrl is often "wss://host:port/control.ashx" — convert to "https://host:port".
         try {
           const u = new URL(s);
           const proto =
@@ -84,7 +85,7 @@ const LoginScreen = ({ onGetStarted, onLoginSuccess }: LoginScreenProps) => {
           const port = data.dbTarget.port ?? "unknown-port";
           setError(
             `Login unavailable: database is not reachable (${host}:${port}). ` +
-              `Update MYSQL_HOST/MYSQL_PORT in .env and restart the dev server.`
+              `Update MYSQL_HOST/MYSQL_PORT in .env and restart the dev server.`,
           );
         } else {
           setError(data.error || "Login failed");
@@ -109,78 +110,64 @@ const LoginScreen = ({ onGetStarted, onLoginSuccess }: LoginScreenProps) => {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen px-6 py-12">
-      <div className="w-full max-w-md opacity-0 animate-scale-in">
-        <div className="glass rounded-2xl p-8 md:p-10">
-          <div className="flex items-center gap-3 mb-8">
-            <div className="w-10 h-10 rounded-xl bg-gradient-atomic flex items-center justify-center">
-              <Cpu className="w-5 h-5 text-primary-foreground" />
-            </div>
-            <div>
-              <h2 className="text-2xl font-bold">Login</h2>
-              <p className="text-sm text-muted-foreground">Enter your credentials to continue</p>
-            </div>
+    <AuthShell
+      title="Sign in"
+      description="Use your Atomic Center credentials to access the dashboard."
+      icon={<Cpu className="h-6 w-6" />}
+      heroVideoSrc={LOGIN_HERO_VIDEO}
+      footer={
+        <a
+          href={createAccountHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-sm font-medium text-primary hover:underline"
+        >
+          Create account
+        </a>
+      }
+    >
+      <form onSubmit={handleSubmit} className="space-y-5">
+        {error ? (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            {error}
           </div>
-
-          <form onSubmit={handleSubmit} className="space-y-5">
-            {error && (
-              <div className="px-4 py-2 rounded-lg bg-destructive/10 border border-destructive/30 text-destructive text-sm">
-                {error}
-              </div>
-            )}
-            <div>
-              <label className="block text-sm font-medium text-secondary-foreground mb-2">Username</label>
-              <input
-                type="text"
-                placeholder="Enter your username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="w-full px-4 py-3 rounded-lg bg-muted border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-secondary-foreground mb-2">Password</label>
-              <input
-                type="password"
-                placeholder="Enter your password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-3 rounded-lg bg-muted border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
-                required
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full px-6 py-3.5 rounded-lg bg-gradient-atomic font-semibold text-primary-foreground glow-primary-sm transition-all duration-300 hover:scale-[1.02] disabled:opacity-60 disabled:hover:scale-100"
-            >
-              {loading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <span className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
-                  Logging in...
-                </span>
-              ) : (
-                "Login"
-              )}
-            </button>
-          </form>
-
-          <div className="mt-6 text-center">
-            <a
-              href={createAccountHref}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm font-medium text-primary hover:underline inline-block"
-            >
-              Create account
-            </a>
-          </div>
+        ) : null}
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-foreground">Username</label>
+          <input
+            type="text"
+            placeholder="Enter your username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            className="input-field"
+            required
+            autoComplete="username"
+          />
         </div>
-      </div>
-    </div>
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-foreground">Password</label>
+          <input
+            type="password"
+            placeholder="Enter your password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="input-field"
+            required
+            autoComplete="current-password"
+          />
+        </div>
+        <button type="submit" disabled={loading} className="btn-primary-gradient w-full py-3">
+          {loading ? (
+            <span className="flex items-center justify-center gap-2">
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground" />
+              Signing in…
+            </span>
+          ) : (
+            "Sign in"
+          )}
+        </button>
+      </form>
+    </AuthShell>
   );
 };
 

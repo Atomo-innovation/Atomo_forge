@@ -11,6 +11,8 @@ import {
 } from "@/services/detectionFolderExport";
 import { AddCameraModal } from "@/components/dashboard/AddCameraModal";
 import { RenameCameraDialog } from "@/components/dashboard/RenameCameraDialog";
+import { PageHeader } from "@/components/layout/PageHeader";
+import { DASHBOARD_VIEW_META } from "@/lib/dashboardViewMeta";
 
 interface Props {
   /** Which sidebar detection workspace this screen is for — stored on new cameras. */
@@ -143,21 +145,20 @@ const CamerasView = ({
     };
   }, []);
 
+  const meta = DASHBOARD_VIEW_META[workspaceId];
+
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold mb-1">{workspaceTitle}</h1>
-          <p className="text-muted-foreground">Manage connected cameras for this workspace</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setAddModalOpen(true)}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-atomic text-primary-foreground text-sm font-medium glow-primary-sm hover:scale-[1.02] transition-all"
-        >
-          <Plus className="w-4 h-4" /> Add Camera
-        </button>
-      </div>
+    <div className="animate-fade-in">
+      <PageHeader
+        title={meta?.title ?? workspaceTitle}
+        description={meta?.description ?? "Manage connected cameras for this workspace."}
+        actions={
+          <button type="button" onClick={() => setAddModalOpen(true)} className="btn-primary-gradient gap-2">
+            <Plus className="h-4 w-4" /> Add camera
+          </button>
+        }
+      />
+      <div className="space-y-6">
 
       {/* Camera list */}
       {cameras.length === 0 ? (
@@ -432,6 +433,7 @@ const CamerasView = ({
           </div>
         )}
       </section>
+      </div>
 
       <AddCameraModal
         open={addModalOpen}

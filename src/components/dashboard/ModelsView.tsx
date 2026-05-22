@@ -449,12 +449,14 @@ const ModelsView = () => {
   }, [models, query]);
 
   return (
-    <div className="h-screen flex flex-col animate-fade-in bg-background">
-      <div className="border-b border-border/60 bg-card/50 backdrop-blur-sm sticky top-0 z-10 px-6 py-4">
-        <div className="max-w-[1600px] mx-auto flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">AI Models</h1>
-            <p className="text-sm text-muted-foreground mt-1">Manage and deploy edge AI models with real-time inference</p>
+    <div className="flex h-full min-h-0 flex-col overflow-hidden animate-fade-in bg-background">
+      <div className="shrink-0 border-b border-border/60 bg-card/50 backdrop-blur-sm px-4 py-3 md:px-6">
+        <div className="flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold tracking-tight md:text-2xl">AI Models</h1>
+            <p className="text-xs text-muted-foreground mt-0.5 truncate">
+              Manage and deploy edge AI models with real-time inference
+            </p>
           </div>
           <div className="flex items-center gap-3">
             <input
@@ -478,9 +480,8 @@ const ModelsView = () => {
         </div>
       </div>
 
-      <div className="border-b border-border/60 bg-muted/20 px-6 py-3">
-        <div className="max-w-[1600px] mx-auto">
-          <div className="grid grid-cols-3 gap-4">
+      <div className="shrink-0 border-b border-border/60 bg-muted/20 px-4 py-2 md:px-6">
+        <div className="grid grid-cols-3 gap-3">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
                 <Brain className="w-4 h-4 text-primary" />
@@ -509,10 +510,10 @@ const ModelsView = () => {
               </div>
             </div>
           </div>
-        </div>
       </div>
 
-      <div className="px-6 py-3 space-y-2 max-w-[1600px] mx-auto w-full">
+      {(loading || error || uploadError || uploadSuccess || runError || sessionId || runStatus || lastLog) && (
+      <div className="shrink-0 px-4 py-2 md:px-6 space-y-1">
         {loading && (
           <div className="text-xs text-muted-foreground bg-muted/30 border border-border/40 rounded-lg px-3 py-2 flex items-center gap-2">
             <div className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse" />
@@ -554,13 +555,13 @@ const ModelsView = () => {
           </div>
         )}
       </div>
+      )}
 
-      <div className="flex-1 min-h-0 px-6 py-4 overflow-auto">
-        <div className="max-w-[1600px] mx-auto h-full">
-          <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-6 h-full">
-            <div className="flex flex-col min-h-0 bg-surface rounded-xl border border-border overflow-hidden">
-              <div className="p-4 border-b border-border bg-muted/30">
-                <div className="text-sm font-semibold mb-3">Models</div>
+      <div className="flex flex-1 min-h-0 overflow-hidden px-4 py-3 md:px-6">
+          <div className="grid h-full min-h-0 w-full grid-cols-1 gap-4 lg:grid-cols-[minmax(240px,300px)_1fr]">
+            <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-surface">
+              <div className="shrink-0 border-b border-border bg-muted/30 p-3">
+                <div className="text-sm font-semibold mb-2">Models</div>
                 <input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
@@ -572,7 +573,7 @@ const ModelsView = () => {
                 </div>
               </div>
 
-              <div className="flex-1 min-h-0 overflow-auto">
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
                 {filteredModels.length > 0 ? (
                   <div className="p-3 space-y-2">
                     {filteredModels.map((m) => {
@@ -623,24 +624,24 @@ const ModelsView = () => {
               </div>
             </div>
 
-            <div className="flex flex-col min-h-0 gap-4">
+            <div className="flex min-h-0 flex-col overflow-hidden">
               {!selectedModel ? (
-                <div className="h-full flex flex-col items-center justify-center text-center py-16">
-                  <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mb-3">
-                    <Brain className="w-6 h-6 text-primary" />
+                <div className="flex h-full min-h-0 flex-col items-center justify-center px-4 text-center">
+                  <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+                    <Brain className="h-5 w-5 text-primary" />
                   </div>
-                  <div className="text-lg font-semibold">Select a model</div>
-                  <div className="text-sm text-muted-foreground mt-1 max-w-md">
-                    Choose a model from the left list to view its folder and open an input source (Webcam, RTSP, or Video).
+                  <div className="text-base font-semibold">Select a model</div>
+                  <div className="mt-1 max-w-sm text-xs text-muted-foreground">
+                    Choose a model from the left list to open an input source (Webcam, RTSP, or Video).
                   </div>
                 </div>
               ) : (
-                <div className="space-y-6">
-                  <div className="flex items-start justify-between gap-4">
+                <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
+                  <div className="flex shrink-0 items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        {SelectedModelIcon ? <SelectedModelIcon className="w-6 h-6 text-primary" /> : null}
-                        <div className="text-xl font-bold truncate">{selectedModel?.name}</div>
+                        {SelectedModelIcon ? <SelectedModelIcon className="h-5 w-5 text-primary" /> : null}
+                        <div className="truncate text-lg font-bold">{selectedModel?.name}</div>
                         {selectedModel?.npuOptimized && (
                           <span className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-medium bg-accent/10 text-accent border border-accent/20">
                             <Zap className="w-3 h-3" /> NPU
@@ -651,8 +652,8 @@ const ModelsView = () => {
                     </div>
                   </div>
 
-                  <div>
-                    <div className="flex items-center justify-between mb-3">
+                  <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                    <div className="mb-2 flex shrink-0 items-center justify-between">
                       <div>
                         <div className="text-sm font-semibold">Input source</div>
                         <div className="text-xs text-muted-foreground">Pick where the frames come from.</div>
@@ -666,10 +667,10 @@ const ModelsView = () => {
                       )}
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="grid shrink-0 grid-cols-1 gap-2 md:grid-cols-3">
                       <button
                         onClick={() => setInputSource("webcam")}
-                        className={`p-4 rounded-xl border text-left transition-all duration-200 ${
+                        className={`rounded-lg border p-3 text-left transition-all duration-200 ${
                           inputSource === "webcam"
                             ? "border-primary bg-primary/10 glow-primary-sm"
                             : "border-border bg-muted/30 hover:border-primary/30 hover:bg-muted/50"
@@ -684,7 +685,7 @@ const ModelsView = () => {
 
                       <button
                         onClick={() => setInputSource("rtsp")}
-                        className={`p-4 rounded-xl border text-left transition-all duration-200 ${
+                        className={`rounded-lg border p-3 text-left transition-all duration-200 ${
                           inputSource === "rtsp"
                             ? "border-primary bg-primary/10 glow-primary-sm"
                             : "border-border bg-muted/30 hover:border-primary/30 hover:bg-muted/50"
@@ -699,7 +700,7 @@ const ModelsView = () => {
 
                       <button
                         onClick={() => setInputSource("video")}
-                        className={`p-4 rounded-xl border text-left transition-all duration-200 ${
+                        className={`rounded-lg border p-3 text-left transition-all duration-200 ${
                           inputSource === "video"
                             ? "border-primary bg-primary/10 glow-primary-sm"
                             : "border-border bg-muted/30 hover:border-primary/30 hover:bg-muted/50"
@@ -713,25 +714,25 @@ const ModelsView = () => {
                       </button>
                     </div>
 
-                    <div className="mt-4 rounded-xl border border-border bg-card overflow-hidden">
-                      <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-3">
+                    <div className="mt-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card">
+                      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2">
                         <div className="text-sm font-semibold">Detection Preview</div>
-                        <div className="text-xs text-muted-foreground font-mono">
+                        <div className="font-mono text-[10px] text-muted-foreground">
                           {frameStats?.fps ? `${frameStats.fps.toFixed(1)} FPS` : "-- FPS"} •{" "}
                           {typeof frameStats?.inference_ms === "number" ? `${frameStats.inference_ms.toFixed(1)} ms` : "-- ms"}
                         </div>
                       </div>
-                      <div className="bg-muted/30 flex items-center justify-center">
-                        <canvas ref={canvasRef} className="max-h-[420px] w-full" />
+                      <div className="flex min-h-[140px] flex-1 items-center justify-center bg-muted/30 p-2">
+                        <canvas ref={canvasRef} className="max-h-full max-w-full" />
                       </div>
                       {runState !== "running" && (
-                        <div className="p-4 text-xs text-muted-foreground">
-                          Start a session to see frames here (Universal sends frames via WebSocket as base64 JPEG).
+                        <div className="shrink-0 px-3 py-2 text-[11px] text-muted-foreground">
+                          Start a session to see frames here.
                         </div>
                       )}
                     </div>
 
-                    <div className="mt-4 rounded-xl border border-border bg-muted/20 p-4">
+                    <div className="mt-2 shrink-0 rounded-lg border border-border bg-muted/20 p-3">
                       {!inputSource ? (
                         <div className="text-sm text-muted-foreground">Select an input source above to show its settings.</div>
                       ) : inputSource === "webcam" ? (
@@ -834,7 +835,6 @@ const ModelsView = () => {
               )}
             </div>
           </div>
-        </div>
       </div>
     </div>
   );

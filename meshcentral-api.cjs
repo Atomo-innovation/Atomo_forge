@@ -505,12 +505,19 @@ function createMeshCentralGroup(meshname, credsOverride) {
     }
     function sendCreate() {
       if (sent || settled) return;
-      sent = true;
-      try {
-        ws.send(JSON.stringify(cmd));
-      } catch (e) {
-        finish(new Error(e.message || 'send failed'));
-      }
+      const attempt = () => {
+        if (sent || settled) return;
+        if (ws.readyState !== WebSocket.OPEN) return;
+        sent = true;
+        try {
+          ws.send(JSON.stringify(cmd));
+        } catch (e) {
+          sent = false;
+          finish(new Error(e.message || 'send failed'));
+        }
+      };
+      ws.once('open', attempt);
+      attempt();
     }
     ws.on('message', (data) => {
       if (settled) return;
@@ -589,12 +596,19 @@ function deleteMeshCentralGroup(meshid, meshname, credsOverride) {
     }
     function sendDelete() {
       if (sent || settled) return;
-      sent = true;
-      try {
-        ws.send(JSON.stringify(cmd));
-      } catch (e) {
-        finish(new Error(e.message || 'send failed'));
-      }
+      const attempt = () => {
+        if (sent || settled) return;
+        if (ws.readyState !== WebSocket.OPEN) return;
+        sent = true;
+        try {
+          ws.send(JSON.stringify(cmd));
+        } catch (e) {
+          sent = false;
+          finish(new Error(e.message || 'send failed'));
+        }
+      };
+      ws.once('open', attempt);
+      attempt();
     }
     ws.on('message', (data) => {
       if (settled) return;
@@ -667,12 +681,19 @@ function fetchMeshCentralMeshes(credsOverride) {
     }
     function sendMeshes() {
       if (sent || settled) return;
-      sent = true;
-      try {
-        ws.send(JSON.stringify({ action: 'meshes', tag: TAG }));
-      } catch (e) {
-        finish(new Error(e.message || 'send failed'));
-      }
+      const attempt = () => {
+        if (sent || settled) return;
+        if (ws.readyState !== WebSocket.OPEN) return;
+        sent = true;
+        try {
+          ws.send(JSON.stringify({ action: 'meshes', tag: TAG }));
+        } catch (e) {
+          sent = false;
+          finish(new Error(e.message || 'send failed'));
+        }
+      };
+      ws.once('open', attempt);
+      attempt();
     }
     ws.on('message', (data) => {
       if (settled) return;

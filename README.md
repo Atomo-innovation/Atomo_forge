@@ -52,36 +52,47 @@ sudo sh -c 'echo "127.0.0.1 electron.local" >> /etc/hosts'
 npm run dev
 ```
 
-### Start Caddy (reverse proxy to Vite)
+### HTTPS on port 443 (`https://electron.local`)
 
-Install Caddy, then run it from the repo root (it will read `./Caddyfile`):
+`npm run dev` runs `scripts/ensure-caddy-for-dev.sh` in the same terminal: it reuses Caddy if port 443 is already up, otherwise runs `sudo systemctl start caddy` (or `sudo caddy run --config ./Caddyfile`). You may be prompted for your sudo password once.
+
+Skip the proxy (Vite only): `FORGE_SKIP_CADDY=1 npm run dev` → open `https://electron.local:8443`.
+
+Manual Caddy (second terminal) is only needed if you stopped the bundled helper and systemd:
 
 ```sh
 sudo apt-get install -y caddy
-sudo caddy run --config ./Caddyfile
+sudo systemctl start caddy
 ```
 
-Now open `https://electron.local`.
+Now open `https://electron.local` while `npm run dev` is running.
 
-## Make `electron.local` work on other devices (no `/etc/hosts`)
+**`ERR_CONNECTION_REFUSED` on `https://electron.local` (no port)?** Vite listens on **`:8443`**, not **`:443`**. Open **`https://electron.local:8443`** or start Caddy once: `sudo systemctl start caddy`.
 
-To make other devices on the same Wi‑Fi/LAN resolve `electron.local` automatically, use **mDNS** (Avahi/Bonjour) so your machine advertises itself as `electron.local`.
+## Other devices (phone, tablet, another PC)
 
-Run once on the host machine:
+`/etc/hosts` on your dev PC (`127.0.0.1 electron.local`) **only works on that PC**. Other devices cannot use it.
 
-```sh
-npm run lan:setup
-```
-
-Then, on other devices on the same network, open:
+**Reliable (same Wi‑Fi):** use your PC’s LAN IP on **HTTP port 80** (Caddy must be running — `npm run caddy:start` or `npm run dev`):
 
 ```text
-http://electron.local
+http://192.168.1.30
 ```
 
-Note: for easiest cross-device access, use **HTTP** on LAN. HTTPS for `.local` requires trusting a local CA certificate on each device.
+Replace with your IP (`npm run dev` prints `[forge] Other devices … http://…`).
 
-If you previously added `electron.local` into `/etc/hosts`, the setup script will remove that override (it breaks LAN access).
+**Optional name:** `npm run lan:setup` (sudo) enables mDNS so some devices can open `http://electron.local`. Android/Windows support varies; the IP URL above always works if the firewall allows port 80.
+
+**Do not use** `https://electron.local` on other devices unless you install/trust the local Caddy CA on each device. Use **http://** and the IP.
+
+**Firewall (Ubuntu):** if the phone cannot connect:
+
+```sh
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+```
+
+Keep `npm run dev` running on the host while other devices connect.
 
 ## Run ONLINE (public URL with trusted HTTPS)
 

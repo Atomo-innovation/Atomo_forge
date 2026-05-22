@@ -28,6 +28,7 @@ import {
 import { useModels } from "@/hooks/useModels";
 import { getCameraFingerprint, getOrCreateStableCameraId } from "@/services/cameraIdentity";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -176,11 +177,12 @@ function SortablePanel({
     <section
       ref={setNodeRef}
       style={style}
-      className={`flex h-full min-h-0 flex-col rounded-xl border border-border/60 bg-card shadow-sm outline-none transition-shadow ${
-        isDragging ? "z-20 scale-[1.01] opacity-[0.97] ring-2 ring-primary/30 shadow-lg" : ""
-      }`}
+      className={cn(
+        "surface-panel flex h-full min-h-0 flex-col outline-none transition-shadow",
+        isDragging && "z-20 scale-[1.01] opacity-[0.97] ring-2 ring-primary/25 shadow-lg",
+      )}
     >
-      <div className="flex flex-col gap-3 border-b border-border/50 bg-muted/15 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+      <div className="flex flex-col gap-3 border-b border-border/60 bg-muted/25 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
         <div className="flex min-w-0 items-start gap-3">
           <button
             type="button"
@@ -628,24 +630,21 @@ const DashboardHome = ({ cameras, onAddCamera, onUpdateCamera, onViewCamera, onO
   };
 
   return (
-    <div className="mx-auto max-w-[1600px] animate-fade-in">
-      <header className="mb-6 flex flex-col gap-3 sm:mb-8 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Overview</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            On large screens, panels use <span className="font-medium text-foreground">two columns</span>. Use the width
-            control and grip in each header to adjust size and order. Layout is saved on this device.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={resetLayout}
-          disabled={isDefaultLayout}
-          className="self-start rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40 sm:self-auto"
-        >
-          Reset layout
-        </button>
-      </header>
+    <div className="animate-fade-in">
+      <PageHeader
+        title="Overview"
+        description="Key metrics, cameras, and recent activity. Drag panel headers to reorder; layout is saved on this device."
+        actions={
+          <button
+            type="button"
+            onClick={resetLayout}
+            disabled={isDefaultLayout}
+            className="rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+          >
+            Reset layout
+          </button>
+        }
+      />
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={order} strategy={rectSortingStrategy}>

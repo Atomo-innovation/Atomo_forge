@@ -27,6 +27,8 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { AuthShell } from "@/components/layout/AuthShell";
+import { FormSection } from "@/components/layout/FormSection";
 import { setDeviceProfile } from "@/services/deviceProfile";
 import { useAuthUsername } from "@/contexts/AuthUsernameContext";
 import { authApiUrl } from "@/services/authApiUrl";
@@ -478,36 +480,19 @@ const RegistrationScreen = ({
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen px-6 py-12">
-      <div className="w-full max-w-2xl opacity-0 animate-scale-in">
-        <div className="glass rounded-2xl p-8 md:p-10">
-          <div className="flex items-center gap-3 mb-8">
-            <div className="w-10 h-10 rounded-xl bg-gradient-atomic flex items-center justify-center">
-              <Cpu className="w-5 h-5 text-primary-foreground" />
-            </div>
-            <div>
-              <h2 className="text-2xl font-bold">Register Your Device</h2>
-              <p className="text-sm text-muted-foreground">
-                One device per account. Enter details, enable Cloud Sync, set up
-                Atomic Center, then register.
-              </p>
-            </div>
-          </div>
-
-          <section
-            aria-labelledby="device-registration-heading"
-          >
-            <div className="flex items-center gap-2 mb-5">
-              <Cpu className="w-5 h-5 text-muted-foreground" />
-              <h3
-                id="device-registration-heading"
-                className="text-lg font-semibold"
-              >
-                Device registration
-              </h3>
-            </div>
-
-          <form onSubmit={handleRegister} className="space-y-5">
+    <AuthShell
+      maxWidth="lg"
+      title="Register your device"
+      description="One device per account. Enter details, enable Cloud Sync, configure Atomic Center, then register."
+      icon={<Cpu className="h-6 w-6" />}
+    >
+      <form onSubmit={handleRegister} className="space-y-8">
+        <FormSection
+          title="Device registration"
+          description="Identity and contact details for this processing unit."
+          icon={<Cpu className="h-5 w-5" />}
+        >
+          <div className="space-y-5">
             {error && (
               <div className="px-4 py-2 rounded-lg bg-destructive/10 border border-destructive/30 text-destructive text-sm">
                 {error}
@@ -620,18 +605,15 @@ const RegistrationScreen = ({
                 </p>
               </div>
             </label>
+          </div>
+        </FormSection>
 
-            <div
-              ref={meshSectionRef}
-              aria-labelledby="meshcentral-heading"
-              className="pt-6 border-t border-border space-y-4"
-            >
-            <div className="flex items-center gap-2">
-              <Server className="w-5 h-5 text-muted-foreground" />
-              <h3 id="meshcentral-heading" className="text-lg font-semibold">
-                Atomic Center
-              </h3>
-            </div>
+        <FormSection
+          title="Atomic Center"
+          description="Remote management and agent installation via MeshCentral."
+          icon={<Server className="h-5 w-5" />}
+        >
+          <div ref={meshSectionRef} aria-labelledby="meshcentral-heading" className="space-y-4">
 
             {meshStatus === null && (
               <p className="text-xs text-muted-foreground">
@@ -813,9 +795,10 @@ const RegistrationScreen = ({
                 )}
               </div>
             )}
-            </div>
+          </div>
+        </FormSection>
 
-            <div className="pt-2 space-y-3">
+        <div className="pt-2">
               <button
                 type="submit"
                 disabled={
@@ -823,7 +806,7 @@ const RegistrationScreen = ({
                   (meshLoading && pendingRegistrationComplete) ||
                   meshRunLoading !== null
                 }
-                className="w-full px-6 py-3.5 rounded-lg bg-gradient-atomic font-semibold text-primary-foreground glow-primary-sm transition-all duration-300 hover:scale-[1.02] disabled:opacity-60 disabled:hover:scale-100"
+                className="btn-primary-gradient w-full py-3.5"
               >
                 {loading ? (
                   <span className="flex items-center justify-center gap-2">
@@ -838,12 +821,8 @@ const RegistrationScreen = ({
                   "Register Device"
                 )}
               </button>
-            </div>
-          </form>
-          </section>
-
         </div>
-      </div>
+      </form>
 
       <Dialog
         open={meshRunSudoModal !== null}
@@ -910,7 +889,7 @@ const RegistrationScreen = ({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </AuthShell>
   );
 };
 

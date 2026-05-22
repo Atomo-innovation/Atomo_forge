@@ -1,7 +1,18 @@
-import { LayoutDashboard, User, Flame, ScanFace, Shield, Bell, Brain, Settings, ChevronLeft, Box } from "lucide-react";
+import {
+  LayoutDashboard,
+  User,
+  Flame,
+  ScanFace,
+  Shield,
+  Bell,
+  Brain,
+  Settings,
+  ChevronLeft,
+  Box,
+} from "lucide-react";
 import type { DashboardView } from "@/pages/Dashboard";
+import { cn } from "@/lib/utils";
 
-/** Served from `public/al.png` (respects Vite `base` via `import.meta.env.BASE_URL`). */
 const SIDEBAR_LOGO_SRC = `${import.meta.env.BASE_URL}al.png`;
 
 interface Props {
@@ -11,55 +22,64 @@ interface Props {
   onToggle: () => void;
 }
 
-const navItems: { id: DashboardView; label: string; icon: React.ElementType }[] = [
-  { id: "home", label: "Overview", icon: LayoutDashboard },
-  { id: "twin", label: "Twin", icon: Box },
-  { id: "cameras", label: "Person", icon: User },
-  { id: "cameras2", label: "Fire", icon: Flame },
-  { id: "cameras3", label: "Face recognition", icon: ScanFace },
-  { id: "cameras4", label: "Safety", icon: Shield },
-  { id: "events", label: "Events", icon: Bell },
-  { id: "models", label: "Models", icon: Brain },
-  { id: "settings", label: "Settings", icon: Settings },
+type NavItem = { id: DashboardView; label: string; icon: React.ElementType };
+
+const navGroups: { label: string; items: NavItem[] }[] = [
+  {
+    label: "Main",
+    items: [
+      { id: "home", label: "Overview", icon: LayoutDashboard },
+      { id: "twin", label: "Digital twin", icon: Box },
+    ],
+  },
+  {
+    label: "Detection",
+    items: [
+      { id: "cameras", label: "Person", icon: User },
+      { id: "cameras2", label: "Fire & smoke", icon: Flame },
+      { id: "cameras3", label: "Face recognition", icon: ScanFace },
+      { id: "cameras4", label: "Safety", icon: Shield },
+    ],
+  },
+  {
+    label: "System",
+    items: [
+      { id: "events", label: "Events", icon: Bell },
+      { id: "models", label: "AI models", icon: Brain },
+      { id: "settings", label: "Settings", icon: Settings },
+    ],
+  },
 ];
 
 const DashboardSidebar = ({ currentView, onNavigate, open, onToggle }: Props) => {
   return (
     <aside
-      className={`${
-        open ? "w-60" : "w-16"
-      } bg-sidebar border-r border-sidebar-border flex flex-col transition-[width] duration-300 ease-out shrink-0 sticky top-0 h-screen overflow-hidden`}
+      className={cn(
+        "flex h-screen shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar transition-[width] duration-300 ease-out",
+        open ? "w-64" : "w-[4.25rem]",
+      )}
     >
-      {/* Brand strip: expanded = logo + wordmark + toggle; collapsed = stacked mark + toggle */}
       <div
-        className={
-          open
-            ? "flex h-[4.25rem] shrink-0 items-center gap-2 border-b border-sidebar-border px-3"
-            : "flex shrink-0 flex-col items-center gap-2.5 border-b border-sidebar-border px-2 py-3"
-        }
+        className={cn(
+          "flex shrink-0 border-b border-sidebar-border",
+          open ? "h-16 items-center gap-2 px-4" : "flex-col items-center gap-2 py-4 px-2",
+        )}
       >
         {open ? (
           <>
             <div className="flex min-w-0 flex-1 items-center gap-3">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-sidebar-accent/60 ring-1 ring-sidebar-border/80 shadow-inner">
-                <img
-                  src={SIDEBAR_LOGO_SRC}
-                  alt=""
-                  width={729}
-                  height={756}
-                  decoding="async"
-                  className="h-8 w-8 object-contain"
-                  aria-hidden
-                />
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-sidebar-accent ring-1 ring-sidebar-border">
+                <img src={SIDEBAR_LOGO_SRC} alt="" width={729} height={756} decoding="async" className="h-7 w-7 object-contain" aria-hidden />
               </div>
-              <div className="min-w-0 flex-1 leading-none">
-                <p className="text-gradient truncate text-xl font-bold tracking-tight">Atomo</p>
+              <div className="min-w-0 leading-none">
+                <p className="truncate text-lg font-semibold tracking-tight text-sidebar-foreground">Atomo</p>
+                <p className="truncate text-[11px] text-sidebar-foreground/55">Forge Suite</p>
               </div>
             </div>
             <button
               type="button"
               onClick={onToggle}
-              className="shrink-0 rounded-lg p-2 text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+              className="shrink-0 rounded-lg p-2 text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
               aria-label="Collapse sidebar"
             >
               <ChevronLeft className="h-4 w-4" />
@@ -67,23 +87,13 @@ const DashboardSidebar = ({ currentView, onNavigate, open, onToggle }: Props) =>
           </>
         ) : (
           <>
-            <div
-              className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-sidebar-accent/60 ring-1 ring-sidebar-border/80 shadow-inner"
-              title="Atomo"
-            >
-              <img
-                src={SIDEBAR_LOGO_SRC}
-                alt="Atomo"
-                width={729}
-                height={756}
-                decoding="async"
-                className="h-8 w-8 object-contain"
-              />
+            <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-lg bg-sidebar-accent ring-1 ring-sidebar-border" title="Atomo">
+              <img src={SIDEBAR_LOGO_SRC} alt="Atomo" width={729} height={756} decoding="async" className="h-7 w-7 object-contain" />
             </div>
             <button
               type="button"
               onClick={onToggle}
-              className="rounded-lg p-1.5 text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+              className="rounded-lg p-1.5 text-sidebar-foreground/80 hover:bg-sidebar-accent"
               aria-label="Expand sidebar"
             >
               <ChevronLeft className="h-4 w-4 rotate-180" />
@@ -92,35 +102,50 @@ const DashboardSidebar = ({ currentView, onNavigate, open, onToggle }: Props) =>
         )}
       </div>
 
-      <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto">
-        {navItems.map((item) => {
-          const active = currentView === item.id;
-          return (
-            <button
-              key={item.id}
-              onClick={() => onNavigate(item.id)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
-                active
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-sidebar-foreground hover:bg-sidebar-accent/80 hover:text-sidebar-accent-foreground"
-              }`}
-            >
-              <item.icon className={`w-5 h-5 shrink-0 ${active ? "text-sidebar-accent-foreground" : "text-sidebar-foreground"}`} />
-              {open && <span>{item.label}</span>}
-            </button>
-          );
-        })}
+      <nav className="flex-1 space-y-6 overflow-y-auto px-2 py-4">
+        {navGroups.map((group) => (
+          <div key={group.label}>
+            {open ? (
+              <p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/45">{group.label}</p>
+            ) : (
+              <div className="mx-auto mb-2 h-px w-8 bg-sidebar-border" aria-hidden />
+            )}
+            <ul className="space-y-0.5">
+              {group.items.map((item) => {
+                const active = currentView === item.id;
+                return (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      onClick={() => onNavigate(item.id)}
+                      title={!open ? item.label : undefined}
+                      className={cn(
+                        "relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                        active
+                          ? "bg-sidebar-accent text-sidebar-primary"
+                          : "text-sidebar-foreground/85 hover:bg-sidebar-accent/80 hover:text-sidebar-foreground",
+                      )}
+                    >
+                      {active ? (
+                        <span className="absolute left-0 top-1/2 h-6 w-0.5 -translate-y-1/2 rounded-full bg-sidebar-primary" aria-hidden />
+                      ) : null}
+                      <item.icon className={cn("h-[1.125rem] w-[1.125rem] shrink-0", active && "text-sidebar-primary")} />
+                      {open ? <span className="truncate">{item.label}</span> : null}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
       </nav>
 
-      {open && (
-        <div className="p-4 border-t border-sidebar-border">
-          <div className="text-xs text-muted-foreground">
-            Atomo Processing Unit
-            <br />
-            <span className="font-mono text-[10px]">v2.1.0 • Electron</span>
-          </div>
+      {open ? (
+        <div className="border-t border-sidebar-border px-4 py-4">
+          <p className="text-xs text-sidebar-foreground/50">Atomo Processing Unit</p>
+          <p className="mt-0.5 font-mono text-[10px] text-sidebar-foreground/40">v2.1.0</p>
         </div>
-      )}
+      ) : null}
     </aside>
   );
 };

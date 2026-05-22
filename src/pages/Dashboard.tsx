@@ -317,12 +317,20 @@ const Dashboard = ({ onLogout }: { onLogout: () => void }) => {
         <DashboardTopBar onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
         <main
           className={
-            view === "twin"
-              ? "flex-1 min-h-0 flex flex-col p-0 overflow-hidden"
-              : "flex-1 min-h-0 p-6 overflow-auto"
+            view === "twin" || view === "models"
+              ? "flex-1 min-h-0 flex flex-col overflow-hidden"
+              : "flex-1 min-h-0 overflow-auto"
           }
         >
-          {renderView()}
+          <div
+            className={
+              view === "twin" || view === "models"
+                ? "flex h-full min-h-0 flex-col"
+                : "mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6 sm:py-8"
+            }
+          >
+            {renderView()}
+          </div>
         </main>
       </div>
     </div>

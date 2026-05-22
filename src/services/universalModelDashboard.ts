@@ -1,5 +1,6 @@
 import type { ModelInfo } from "@/data/models";
 import { universalModelIcon } from "@/data/models";
+import { authApiUrl, readForgeApiJson } from "@/services/authApiUrl";
 
 type UniversalDashboardModel = {
   name: string;
@@ -14,11 +15,22 @@ type UniversalDashboardModel = {
 };
 
 export async function fetchUniversalDashboardModels(signal?: AbortSignal): Promise<ModelInfo[]> {
-  // Use same-origin proxy to avoid CORS issues in the browser.
-  // Dev server routes `/universal/*` to the Forge backend, which embeds Universal.
-  const res = await fetch(`/universal/api/models`, { signal });
-  if (!res.ok) throw new Error(`Universal dashboard /api/models failed (${res.status})`);
-  const data = (await res.json()) as { models?: UniversalDashboardModel[] };
+  // Same-origin: Vite/Caddy proxy `/universal` → auth-server :3003. Optional: VITE_AUTH_API_ORIGIN.
+  const url = authApiUrl("/universal/api/models");
+  const res = await fetch(url, { signal });
+  const data = await readForgeApiJson<{ models?: UniversalDashboardModel[] }>(res);
+  if (!res.ok) {
+    throw new Error(
+      data?.error && typeof data.error === "string"
+        ? data.error
+        : `Models API failed (${res.status}). Is auth-server running? Try: npm run dev`,
+    );
+  }
+  if (!data) {
+    throw new Error(
+      `Models API returned invalid JSON from ${url}. Ensure auth-server is on port 3003 and /universal is proxied.`,
+    );
+  }
   const models = Array.isArray(data.models) ? data.models : [];
 
   return models.map((m) => ({
