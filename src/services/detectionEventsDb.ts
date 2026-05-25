@@ -7,6 +7,17 @@ export type DbDetectionEvent = StoredDetectionEvent & { imageFromServer?: boolea
 
 export const DETECTION_EVENTS_DB_CHANGED_EVENT = "atomo-forge:detection-events-db-changed";
 
+export const WORKSPACE_EVENTS_DATABASE: Record<CameraWorkspaceId, string> = {
+  cameras: "atomo_forge_person",
+  cameras2: "atomo_forge_fire",
+  cameras3: "atomo_forge_face",
+  cameras4: "atomo_forge_safety",
+};
+
+export function eventsDatabaseForWorkspace(workspaceId: string): string {
+  return WORKSPACE_EVENTS_DATABASE[workspaceId as CameraWorkspaceId] ?? "atomo_forge_person";
+}
+
 let dbAvailable: boolean | null = null;
 
 export function resetDetectionEventsDbCache(): void {
@@ -21,22 +32,40 @@ function notifyDbChanged(): void {
   }
 }
 
-export async function fetchDetectionEventsDbAvailable(force = false): Promise<boolean> {
-  if (!force && dbAvailable !== null) return dbAvailable;
+export async function fetchDetectionEventsDbAvailable(
+  workspaceId?: CameraWorkspaceId,
+  force = false,
+): Promise<boolean> {
+  if (!force && !workspaceId && dbAvailable !== null) return dbAvailable;
   try {
     const r = await fetch(authApiUrl("/api/detection-events/status"));
-    const data = await readForgeApiJson<{ ok?: boolean; dbAvailable?: boolean }>(r);
+    const data = await readForgeApiJson<{
+      ok?: boolean;
+      dbAvailable?: boolean;
+      workspaces?: Array<{ workspaceId: string; dbAvailable?: boolean }>;
+    }>(r);
+    if (workspaceId && data?.workspaces) {
+      const row = data.workspaces.find((w) => w.workspaceId === workspaceId);
+      return Boolean(data?.ok && row?.dbAvailable);
+    }
     dbAvailable = Boolean(data?.ok && data.dbAvailable);
+    return dbAvailable;
   } catch {
-    dbAvailable = false;
+    return false;
   }
-  return dbAvailable;
 }
 
-export function detectionEventImageUrl(id: string, forgeAccount?: string | null): string {
+export function detectionEventImageUrl(
+  id: string,
+  forgeAccount?: string | null,
+  workspaceId?: string | null,
+): string {
+  const params = new URLSearchParams();
   const u = forgeAccount?.trim().toLowerCase();
-  const q = u ? `?forgeAccount=${encodeURIComponent(u)}` : "";
-  return authApiUrl(`/api/detection-events/${encodeURIComponent(id)}/image${q}`);
+  if (u) params.set("forgeAccount", u);
+  if (workspaceId) params.set("workspace", workspaceId);
+  const q = params.toString();
+  return authApiUrl(`/api/detection-events/${encodeURIComponent(id)}/image${q ? `?${q}` : ""}`);
 }
 
 function currentForgeAccount(): string | null {
@@ -47,7 +76,8 @@ function currentForgeAccount(): string | null {
 export async function persistDetectionEventToDb(ev: StoredDetectionEvent): Promise<boolean> {
   const forgeAccount = currentForgeAccount();
   if (!forgeAccount || !ev.cropImage?.size) return false;
-  if (!(await fetchDetectionEventsDbAvailable())) return false;
+  const ws = ev.detectionWorkspace ?? "cameras";
+  if (!(await fetchDetectionEventsDbAvailable(ws, true))) return false;
 
   const fd = new FormData();
   fd.append("crop", ev.cropImage, `det-${ev.id}.jpg`);
@@ -100,7 +130,7 @@ export async function searchDetectionEventsInDb(opts: {
 }): Promise<DbDetectionEvent[]> {
   const forgeAccount = currentForgeAccount();
   if (!forgeAccount) return [];
-  if (!(await fetchDetectionEventsDbAvailable())) return [];
+  if (!(await fetchDetectionEventsDbAvailable(opts.workspaceId, true))) return [];
 
   const params = new URLSearchParams({
     forgeAccount,

@@ -4,7 +4,7 @@ import { type CameraConfig, type CameraWorkspaceId } from "@/pages/Dashboard";
 import { useAuthUsername } from "@/contexts/AuthUsernameContext";
 import { useWorkspaceDetectionSearch } from "@/hooks/useWorkspaceDetectionSearch";
 import { loadDetectionEventThumbUrls, revokeThumbUrls } from "@/services/detectionEventThumbs";
-import { detectionEventImageUrl } from "@/services/detectionEventsDb";
+import { detectionEventImageUrl, eventsDatabaseForWorkspace } from "@/services/detectionEventsDb";
 import type { StoredDetectionEvent } from "@/services/detectionEventsStore";
 import { getDetectionEventById } from "@/services/detectionEventsStore";
 
@@ -117,6 +117,7 @@ const CamerasView = ({
     let cancelled = false;
     void loadDetectionEventThumbUrls(detectionThumbIds, {
       forgeAccount,
+      workspaceId,
       preferServer: useServerImages,
     }).then((loaded) => {
       if (cancelled) {
@@ -138,7 +139,7 @@ const CamerasView = ({
     return () => {
       cancelled = true;
     };
-  }, [detectionThumbIds, forgeAccount, useServerImages]);
+  }, [detectionThumbIds, forgeAccount, workspaceId, useServerImages]);
 
   const openEventDetail = (e: StoredDetectionEvent) => {
     setDetailEvent(e);
@@ -150,7 +151,8 @@ const CamerasView = ({
 
   const detailImageUrl =
     detailEvent && forgeAccount
-      ? recentThumbUrls[detailEvent.id] ?? detectionEventImageUrl(detailEvent.id, forgeAccount)
+      ? recentThumbUrls[detailEvent.id] ??
+        detectionEventImageUrl(detailEvent.id, forgeAccount, workspaceId)
       : detailEvent
         ? recentThumbUrls[detailEvent.id]
         : undefined;
@@ -284,7 +286,8 @@ const CamerasView = ({
               <h2 className="text-lg font-semibold tracking-tight">Recent detections</h2>
               {dbAvailable ? (
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Saving to MySQL <span className="font-medium">atomo_forge</span> (metadata + images) · search from database
+                  Saving to MySQL <span className="font-medium">{eventsDatabaseForWorkspace(workspaceId)}</span> (
+                  {workspaceTitle}) · metadata + images
                 </p>
               ) : (
                 <p className="text-xs text-muted-foreground mt-0.5">

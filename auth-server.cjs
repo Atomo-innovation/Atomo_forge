@@ -126,20 +126,9 @@ const pool = mysql.createPool({
  * Detection events + images — MUST stay in MYSQL_EVENTS_DATABASE (atomo_forge).
  * Do not store events in meshcentral or tie to MeshCentral. See scripts/sql/events/README.md
  */
-const { eventsMysqlConfig } = require('./scripts/events-mysql-config.cjs');
-const eventsMysql = eventsMysqlConfig();
-const eventsPool = mysql.createPool({
-  host: eventsMysql.host,
-  port: eventsMysql.port,
-  user: eventsMysql.user,
-  password: eventsMysql.password,
-  database: eventsMysql.database,
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
-  connectTimeout: Number.isFinite(mysqlConnectTimeout) ? mysqlConnectTimeout : eventsMysql.connectTimeout,
-});
-registerDetectionEventsRoutes(app, { pool: eventsPool, eventsDatabase: eventsMysql.database });
+const { createEventsPoolManager, allWorkspaceDatabases } = require('./scripts/events-mysql-config.cjs');
+const eventsPools = createEventsPoolManager(mysql);
+registerDetectionEventsRoutes(app, { eventsPools });
 
 /** Cached probe: atomo_registered_devices.mesh_username exists (migration 006). */
 let atomoMeshUsernameColumnCached = null;
@@ -1030,7 +1019,7 @@ server.listen(PORT, AUTH_BIND_HOST, () => {
   }
   console.log('[asnn] embedded backend mounted at /asnn (models:', asnnModelsDir + ', person:', asnnPersonScript + ')');
   console.log(
-    `[mysql] configured ${mysqlHost}:${mysqlPort} user=${process.env.MYSQL_USER || 'atomo'} db=${process.env.MYSQL_DATABASE || 'meshcentral'} | events ${eventsMysql.host}:${eventsMysql.port} db=${eventsMysql.database}`
+    `[mysql] configured ${mysqlHost}:${mysqlPort} user=${process.env.MYSQL_USER || 'atomo'} db=${process.env.MYSQL_DATABASE || 'meshcentral'} | events DBs: ${allWorkspaceDatabases().map((w) => w.database).join(', ')}`
   );
   pool
     .getConnection()

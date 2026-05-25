@@ -1,12 +1,14 @@
 import { getDetectionEventCrop } from "@/services/detectionEventsStore";
 import { detectionEventImageUrl } from "@/services/detectionEventsDb";
+import type { CameraWorkspaceId } from "@/pages/Dashboard";
 
 /** Load crop thumbnails only for the given event ids (e.g. current table page). */
 export async function loadDetectionEventThumbUrls(
   ids: string[],
   opts?: {
     forgeAccount?: string | null;
-    /** Load thumbnails from auth-server / MySQL disk (Recent detections when DB is primary). */
+    workspaceId?: CameraWorkspaceId | null;
+    /** Load thumbnails from auth-server / MySQL (Recent detections when DB is primary). */
     preferServer?: boolean;
     preferServerForIds?: Set<string>;
   },
@@ -16,11 +18,12 @@ export async function loadDetectionEventThumbUrls(
   const preferAllServer = opts?.preferServer === true;
   const preferServer = opts?.preferServerForIds;
   const forgeAccount = opts?.forgeAccount ?? null;
+  const workspaceId = opts?.workspaceId ?? null;
 
   await Promise.all(
     unique.map(async (id) => {
       if (forgeAccount && (preferAllServer || preferServer?.has(id))) {
-        out[id] = detectionEventImageUrl(id, forgeAccount);
+        out[id] = detectionEventImageUrl(id, forgeAccount, workspaceId);
         return;
       }
       const blob = await getDetectionEventCrop(id);
@@ -28,7 +31,7 @@ export async function loadDetectionEventThumbUrls(
         out[id] = URL.createObjectURL(blob);
         return;
       }
-      if (forgeAccount) out[id] = detectionEventImageUrl(id, forgeAccount);
+      if (forgeAccount && workspaceId) out[id] = detectionEventImageUrl(id, forgeAccount, workspaceId);
     }),
   );
   return out;

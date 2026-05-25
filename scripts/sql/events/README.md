@@ -1,30 +1,29 @@
-# atomo_forge — separate detection events database
+# Four separate MySQL databases (one per detection tab)
 
-This folder is **only** for the Forge detection-events database. It is **not** MeshCentral.
+| Tab | Workspace id | Database |
+|-----|----------------|----------|
+| Person | `cameras` | `atomo_forge_person` |
+| Fire & Smoke | `cameras2` | `atomo_forge_fire` |
+| Face recognition | `cameras3` | `atomo_forge_face` |
+| Safety | `cameras4` | `atomo_forge_safety` |
 
-| Item | Value |
-|------|--------|
-| Database | `atomo_forge` (`MYSQL_EVENTS_DATABASE`) |
-| Table | `detection_events` |
-| Account column | `forge_account` (e.g. `board@local`) |
-| Images | `image_jpeg` MEDIUMBLOB in MySQL |
+Each DB has table `detection_events` with `image_jpeg` (crop in MySQL).
 
-## Setup (new database)
+## Setup
 
 ```bash
-npm run mysql:tunnel          # terminal 1 — keep open
-npm run setup:events-db       # terminal 2 — grant + tables + verify
-npm run dev                   # or board:go
+npm run mysql:tunnel          # keep running
+npm run grant:events-db       # creates 4 DBs + grants on EC2
+npm run migrate:events        # creates tables in all 4
+npm run dev
 ```
 
-Manual steps:
+## View in MySQL
 
-1. On MySQL host (EC2): `scripts/sql/grant-atomo-forge.sql` (creates **atomo_forge**)
-2. Laptop: `npm run mysql:tunnel` (keep running)
-3. `npm run migrate:events`
+```sql
+SHOW DATABASES LIKE 'atomo_forge_%';
+USE atomo_forge_person;
+SELECT id, label, LENGTH(image_jpeg) FROM detection_events LIMIT 5;
+```
 
-## Do not
-
-- Put detection rows in `meshcentral`
-- Reuse `scripts/sql/007_atomo_detection_events.sql` (deprecated)
-- Route events through the main auth `pool` — use `eventsPool` in `auth-server.cjs`
+Not MeshCentral. Old single DB `atomo_forge` is no longer used by the app.

@@ -1,11 +1,14 @@
 /**
- * Detection events API — standalone DB only (MYSQL_EVENTS_DATABASE / atomo_forge).
- * Not MeshCentral. Do not use meshcentral pool or tables here.
+ * Detection events — one MySQL database per workspace (Person / Fire / Face / Safety).
  */
 const express = require('express');
 const multer = require('multer');
+const {
+  databaseForWorkspace,
+  isValidWorkspace,
+  allWorkspaceDatabases,
+} = require('./scripts/events-mysql-config.cjs');
 
-const WORKSPACE_IDS = new Set(['cameras', 'cameras2', 'cameras3', 'cameras4']);
 const TABLE = 'detection_events';
 const MAX_SEARCH_LIMIT = 500;
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
@@ -13,44 +16,43 @@ const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 const LIST_COLUMNS = `id, created_at_ms, detection_workspace, camera_id, camera_name, model_name,
   label, score, session_id, box_json`;
 
-/** Forge session account (e.g. board@local) — not tied to MeshCentral. */
 function parseForgeAccount(source) {
   const raw =
-    source?.forgeAccount ??
-    source?.accountId ??
-    source?.account ??
-    source?.meshUsername;
+    source?.forgeAccount ?? source?.accountId ?? source?.account ?? source?.meshUsername;
   const s = String(raw || '').trim().toLowerCase();
   return s || null;
 }
 
-let tableReady = null;
-let cachedEventsDatabase = 'atomo_forge';
-
-function resetTableCache() {
-  tableReady = null;
+function parseWorkspace(source) {
+  const ws = String(source?.workspace ?? source?.detectionWorkspace ?? '').trim();
+  return isValidWorkspace(ws) ? ws : null;
 }
 
-async function ensureTable(pool, eventsDatabase) {
-  if (eventsDatabase) cachedEventsDatabase = eventsDatabase;
-  if (tableReady === true) return true;
-  if (tableReady === false) return false;
+const tableReadyByDb = new Map();
+
+function resetTableCache() {
+  tableReadyByDb.clear();
+}
+
+async function ensureTable(pool, dbName) {
+  if (tableReadyByDb.get(dbName) === true) return true;
+  if (tableReadyByDb.get(dbName) === false) return false;
   try {
     const [rows] = await pool.query(
       `SELECT COUNT(*) AS c FROM information_schema.tables
        WHERE table_schema = ? AND table_name = ?`,
-      [cachedEventsDatabase, TABLE],
+      [dbName, TABLE],
     );
-    const c = rows && rows[0] && Number(rows[0].c);
-    tableReady = c > 0;
-    return tableReady;
+    const ok = rows && rows[0] && Number(rows[0].c) > 0;
+    tableReadyByDb.set(dbName, ok);
+    return ok;
   } catch {
-    tableReady = false;
+    tableReadyByDb.set(dbName, false);
     return false;
   }
 }
 
-function rowToEvent(row) {
+function rowToEvent(row, workspace) {
   let box;
   if (row.box_json != null) {
     try {
@@ -64,7 +66,7 @@ function rowToEvent(row) {
     createdAt: Number(row.created_at_ms),
     sessionId: row.session_id ? String(row.session_id) : '',
     cameraId: String(row.camera_id),
-    detectionWorkspace: row.detection_workspace ? String(row.detection_workspace) : 'cameras',
+    detectionWorkspace: row.detection_workspace ? String(row.detection_workspace) : workspace,
     cameraName: row.camera_name ? String(row.camera_name) : undefined,
     modelName: row.model_name ? String(row.model_name) : undefined,
     label: String(row.label),
@@ -74,76 +76,90 @@ function rowToEvent(row) {
   };
 }
 
-function registerDetectionEventsRoutes(app, { pool, eventsDatabase }) {
-  const dbName = eventsDatabase || process.env.MYSQL_EVENTS_DATABASE || 'atomo_forge';
-  cachedEventsDatabase = dbName;
+function poolForRequest(eventsPools, workspace) {
+  const ws = parseWorkspace({ workspace });
+  if (!ws) return { error: 'workspace query parameter required (cameras|cameras2|cameras3|cameras4)' };
+  const pool = eventsPools.getPool(ws);
+  const dbName = databaseForWorkspace(ws);
+  if (!pool || !dbName) return { error: 'Invalid workspace' };
+  return { pool, dbName, workspace: ws };
+}
 
+function registerDetectionEventsRoutes(app, { eventsPools }) {
   const upload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: MAX_IMAGE_BYTES },
   });
 
   app.get('/api/detection-events/status', async (_req, res) => {
-    const ok = await ensureTable(pool, dbName);
+    const workspaces = [];
+    for (const { workspaceId, label, database } of allWorkspaceDatabases()) {
+      const pool = eventsPools.getPool(workspaceId);
+      const ok = pool ? await ensureTable(pool, database) : false;
+      workspaces.push({ workspaceId, label, database, dbAvailable: ok });
+    }
+    const dbAvailable = workspaces.every((w) => w.dbAvailable);
     return res.json({
       ok: true,
-      dbAvailable: ok,
-      eventsDatabase: dbName,
+      dbAvailable,
       storage: 'mysql_blob',
       meshCentralRequired: false,
+      workspaces,
     });
   });
 
   app.post('/api/detection-events/event', upload.single('crop'), async (req, res) => {
     try {
-      if (!(await ensureTable(pool, dbName))) {
+      const workspace = parseWorkspace(req.body);
+      if (!workspace) {
+        return res.status(400).json({ ok: false, error: 'detectionWorkspace required' });
+      }
+      const ctx = poolForRequest(eventsPools, workspace);
+      if (ctx.error) return res.status(400).json({ ok: false, error: ctx.error });
+
+      if (!(await ensureTable(ctx.pool, ctx.dbName))) {
         return res.status(503).json({
           ok: false,
-          error: `Database ${dbName} / ${TABLE} not ready. Run: npm run migrate:events`,
+          error: `Database ${ctx.dbName} not ready. Run: npm run migrate:events`,
         });
       }
 
       const forgeAccount = parseForgeAccount(req.body);
       if (!forgeAccount) {
-        return res.status(400).json({ ok: false, error: 'forgeAccount (or accountId) required' });
+        return res.status(400).json({ ok: false, error: 'forgeAccount required' });
       }
 
       const id = String(req.body?.id || '').trim();
       const createdAtMs = parseInt(String(req.body?.createdAtMs || req.body?.createdAt || ''), 10);
-      const workspace = String(req.body?.detectionWorkspace || 'cameras').trim();
       const cameraId = String(req.body?.cameraId || '').trim();
       const label = String(req.body?.label || '').trim();
 
       if (!id || !Number.isFinite(createdAtMs) || !cameraId || !label) {
         return res.status(400).json({ ok: false, error: 'id, createdAtMs, cameraId, and label required' });
       }
-      if (!WORKSPACE_IDS.has(workspace)) {
-        return res.status(400).json({ ok: false, error: 'Invalid detectionWorkspace' });
-      }
-      if (!req.file || !req.file.buffer || !req.file.buffer.length) {
+      if (!req.file?.buffer?.length) {
         return res.status(400).json({ ok: false, error: 'crop image required' });
       }
 
       let boxJson = null;
       if (req.body?.boxJson) {
         try {
-          boxJson = typeof req.body.boxJson === 'string' ? req.body.boxJson : JSON.stringify(req.body.boxJson);
+          boxJson =
+            typeof req.body.boxJson === 'string' ? req.body.boxJson : JSON.stringify(req.body.boxJson);
         } catch {
           boxJson = null;
         }
       }
-
       const scoreRaw = req.body?.score;
       const score = scoreRaw === '' || scoreRaw == null ? null : Number(scoreRaw);
 
-      await pool.query(
+      await ctx.pool.query(
         `INSERT INTO ${TABLE}
           (id, forge_account, created_at_ms, detection_workspace, camera_id, camera_name, model_name,
            label, score, session_id, box_json, image_jpeg)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
           created_at_ms = VALUES(created_at_ms),
-          detection_workspace = VALUES(detection_workspace),
           camera_id = VALUES(camera_id),
           camera_name = VALUES(camera_name),
           model_name = VALUES(model_name),
@@ -168,30 +184,30 @@ function registerDetectionEventsRoutes(app, { pool, eventsDatabase }) {
         ],
       );
 
-      return res.json({ ok: true, id, database: dbName });
+      return res.json({ ok: true, id, database: ctx.dbName, workspace });
     } catch (e) {
-      console.warn('[detection-events] POST event failed:', e && (e.code || e.message));
-      if (e && e.code === 'ER_DBACCESS_DENIED_ERROR') {
-        resetTableCache();
-      }
-      return res.status(500).json({ ok: false, error: e && e.message ? String(e.message) : 'Failed to save event' });
+      console.warn('[detection-events] POST failed:', e && (e.code || e.message));
+      if (e?.code === 'ER_DBACCESS_DENIED_ERROR') resetTableCache();
+      return res.status(500).json({ ok: false, error: e?.message || 'Failed to save event' });
     }
   });
 
   app.get('/api/detection-events/search', async (req, res) => {
     try {
-      if (!(await ensureTable(pool, dbName))) {
-        return res.json({ ok: true, dbAvailable: false, events: [], eventsDatabase: dbName });
+      const workspace = parseWorkspace(req.query);
+      if (!workspace) {
+        return res.status(400).json({ ok: false, error: 'workspace query parameter required' });
+      }
+      const ctx = poolForRequest(eventsPools, workspace);
+      if (ctx.error) return res.status(400).json({ ok: false, error: ctx.error });
+
+      if (!(await ensureTable(ctx.pool, ctx.dbName))) {
+        return res.json({ ok: true, dbAvailable: false, events: [], database: ctx.dbName, workspace });
       }
 
       const forgeAccount = parseForgeAccount(req.query);
       if (!forgeAccount) {
-        return res.status(400).json({ ok: false, error: 'forgeAccount query parameter required' });
-      }
-
-      const workspace = String(req.query.workspace || '').trim();
-      if (workspace && !WORKSPACE_IDS.has(workspace)) {
-        return res.status(400).json({ ok: false, error: 'Invalid workspace' });
+        return res.status(400).json({ ok: false, error: 'forgeAccount required' });
       }
 
       const q = String(req.query.q || '').trim();
@@ -203,20 +219,12 @@ function registerDetectionEventsRoutes(app, { pool, eventsDatabase }) {
 
       const cameraIdsRaw = String(req.query.cameraIds || '').trim();
       const cameraIds = cameraIdsRaw
-        ? cameraIdsRaw
-            .split(',')
-            .map((s) => s.trim())
-            .filter(Boolean)
-            .slice(0, 64)
+        ? cameraIdsRaw.split(',').map((s) => s.trim()).filter(Boolean).slice(0, 64)
         : [];
 
       let sql = `SELECT ${LIST_COLUMNS} FROM ${TABLE} WHERE forge_account = ?`;
       const params = [forgeAccount];
 
-      if (workspace) {
-        sql += ` AND detection_workspace = ?`;
-        params.push(workspace);
-      }
       if (cameraIds.length) {
         sql += ` AND camera_id IN (${cameraIds.map(() => '?').join(',')})`;
         params.push(...cameraIds);
@@ -233,10 +241,7 @@ function registerDetectionEventsRoutes(app, { pool, eventsDatabase }) {
         const safeQ = q.replace(/[%_]/g, '');
         const like = `%${safeQ}%`;
         sql += ` AND (
-          label LIKE ?
-          OR camera_name LIKE ?
-          OR model_name LIKE ?
-          OR camera_id LIKE ?
+          label LIKE ? OR camera_name LIKE ? OR model_name LIKE ? OR camera_id LIKE ?
           OR session_id LIKE ?
           OR DATE_FORMAT(FROM_UNIXTIME(created_at_ms / 1000), '%d/%m/%Y %H:%i') LIKE ?
           OR DATE_FORMAT(FROM_UNIXTIME(created_at_ms / 1000), '%b %d, %Y') LIKE ?
@@ -248,34 +253,44 @@ function registerDetectionEventsRoutes(app, { pool, eventsDatabase }) {
       sql += ` ORDER BY created_at_ms DESC LIMIT ?`;
       params.push(limit);
 
-      const [rows] = await pool.query(sql, params);
-      const events = (rows || []).map(rowToEvent);
-      return res.json({ ok: true, dbAvailable: true, events, eventsDatabase: dbName });
+      const [rows] = await ctx.pool.query(sql, params);
+      return res.json({
+        ok: true,
+        dbAvailable: true,
+        events: (rows || []).map((r) => rowToEvent(r, workspace)),
+        database: ctx.dbName,
+        workspace,
+      });
     } catch (e) {
       console.warn('[detection-events] search failed:', e && (e.code || e.message));
-      return res.status(500).json({ ok: false, error: e && e.message ? String(e.message) : 'Search failed' });
+      return res.status(500).json({ ok: false, error: e?.message || 'Search failed' });
     }
   });
 
   app.get('/api/detection-events/:id/image', async (req, res) => {
     try {
+      const workspace = parseWorkspace(req.query);
+      if (!workspace) return res.status(400).send('workspace required');
+
+      const ctx = poolForRequest(eventsPools, workspace);
+      if (ctx.error) return res.status(400).send(ctx.error);
+
       const forgeAccount = parseForgeAccount(req.query);
       const id = String(req.params.id || '').trim();
       if (!forgeAccount || !id) return res.status(400).send('forgeAccount and id required');
 
-      const [rows] = await pool.query(
+      const [rows] = await ctx.pool.query(
         `SELECT image_jpeg FROM ${TABLE} WHERE forge_account = ? AND id = ? LIMIT 1`,
         [forgeAccount, id],
       );
-      const row = rows && rows[0];
-      const buf = row && row.image_jpeg;
-      if (!buf || !buf.length) return res.status(404).send('Image not found');
+      const buf = rows?.[0]?.image_jpeg;
+      if (!buf?.length) return res.status(404).send('Image not found');
 
       res.setHeader('Content-Type', 'image/jpeg');
       res.setHeader('Cache-Control', 'private, max-age=3600');
       return res.send(Buffer.isBuffer(buf) ? buf : Buffer.from(buf));
     } catch (e) {
-      console.warn('[detection-events] image failed:', e && e.message);
+      console.warn('[detection-events] image failed:', e?.message);
       return res.status(500).send('Error');
     }
   });

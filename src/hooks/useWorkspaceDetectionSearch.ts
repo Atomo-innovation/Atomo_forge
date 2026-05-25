@@ -36,15 +36,15 @@ export function useWorkspaceDetectionSearch(
   }, [searchQuery]);
 
   useEffect(() => {
-    void fetchDetectionEventsDbAvailable(true).then(setDbAvailable);
-  }, []);
+    void fetchDetectionEventsDbAvailable(workspaceId, true).then(setDbAvailable);
+  }, [workspaceId]);
 
   const loadDbRecent = useCallback(async () => {
     if (!cameraIds.length) {
       setDbRecentEvents([]);
       return;
     }
-    const ok = await fetchDetectionEventsDbAvailable(true);
+    const ok = await fetchDetectionEventsDbAvailable(workspaceId, true);
     setDbAvailable(ok);
     if (!ok) {
       setDbRecentEvents(null);
@@ -71,7 +71,7 @@ export function useWorkspaceDetectionSearch(
     }
     setDbLoading(true);
     try {
-      const ok = await fetchDetectionEventsDbAvailable(true);
+      const ok = await fetchDetectionEventsDbAvailable(workspaceId, true);
       setDbAvailable(ok);
       if (ok) {
         const fromDb = await searchDetectionEventsInDb({
