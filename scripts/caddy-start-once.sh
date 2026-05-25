@@ -4,12 +4,13 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 [[ "${EUID:-$(id -u)}" -eq 0 ]] || { echo "Run: npm run caddy:start  (uses sudo)" >&2; exit 1; }
 
-if ! command -v caddy >/dev/null 2>&1; then
-  apt-get update -y
-  apt-get install -y caddy
-fi
+bash "$ROOT/scripts/install-caddy-board.sh"
+mkdir -p /etc/caddy
 
 cp "$ROOT/Caddyfile" /etc/caddy/Caddyfile
+if command -v caddy >/dev/null 2>&1; then
+  caddy validate --config /etc/caddy/Caddyfile
+fi
 systemctl enable caddy
 systemctl restart caddy
 sleep 1

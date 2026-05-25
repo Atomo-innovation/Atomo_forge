@@ -1,4 +1,4 @@
-import { Wifi, Menu, Thermometer, Cpu, Activity, Sun, Moon } from "lucide-react";
+import { Wifi, Menu, Thermometer, Cpu, Activity, Sun, Moon, Settings } from "lucide-react";
 import { useEffect, useState } from "react";
 import { getThemeMode, setThemeMode, type ThemeMode } from "@/services/themeMode";
 import {
@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 
 interface Props {
   onToggleSidebar: () => void;
+  onOpenSettings?: () => void;
 }
 
 const StatusPill = ({
@@ -38,7 +39,7 @@ const StatusPill = ({
   </div>
 );
 
-const DashboardTopBar = ({ onToggleSidebar }: Props) => {
+const DashboardTopBar = ({ onToggleSidebar, onOpenSettings }: Props) => {
   const sessionUser = useAuthUsername();
   const [mode, setMode] = useState<ThemeMode>("dark");
   const [profile, setProfile] = useState<DeviceProfile | null>(null);
@@ -96,6 +97,17 @@ const DashboardTopBar = ({ onToggleSidebar }: Props) => {
       </div>
 
       <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+        {onOpenSettings ? (
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className="flex h-9 w-9 items-center justify-center rounded-lg border border-border/70 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            aria-label="Open settings"
+            title="Settings"
+          >
+            <Settings className="h-4 w-4" />
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={toggle}

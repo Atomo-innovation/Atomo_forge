@@ -31,7 +31,12 @@ else
   log "  http://${LAN_IP}          ← works without mDNS"
 fi
 log 'Use http:// not https:// on other devices (unless you install the Caddy CA).'
-log 'This PC: https://electron.local or https://electron.local:8443 (may use /etc/hosts)'
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if [[ -f "$ROOT/.forge-board" ]] || [[ "${FORGE_BOARD:-}" == "1" ]]; then
+  log 'This board: http://electron.local  (setup: npm run board:setup, dev: npm run board:dev)'
+else
+  log 'This PC: https://electron.local or https://electron.local:8443 (may use /etc/hosts)'
+fi
 if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q 'Status: active'; then
   log 'Firewall active — if LAN fails: sudo ufw allow 80,443/tcp'
 fi

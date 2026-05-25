@@ -13,11 +13,17 @@ export type CameraSnapshot = {
   updatedAt: number;
 };
 
+import { userScopedLocalStorageKey } from "@/services/userScopedStorage";
+
 const KEY = "atomo-forge:camera-registry:v1";
+
+function storageKey(): string {
+  return userScopedLocalStorageKey(KEY);
+}
 
 function readAll(): Record<string, CameraSnapshot> {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(storageKey());
     if (!raw) return {};
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== "object") return {};
@@ -29,7 +35,7 @@ function readAll(): Record<string, CameraSnapshot> {
 
 function writeAll(next: Record<string, CameraSnapshot>): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify(next));
+    localStorage.setItem(storageKey(), JSON.stringify(next));
   } catch {
     // ignore
   }
@@ -59,7 +65,7 @@ export function getCameraSnapshot(cameraId: string): CameraSnapshot | null {
 
 export function clearCameraRegistry(): void {
   try {
-    localStorage.removeItem(KEY);
+    localStorage.removeItem(storageKey());
   } catch {
     // ignore
   }

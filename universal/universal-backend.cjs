@@ -126,7 +126,9 @@ function buildPythonArgs({ model, inputType, inputValue, objThresh, nmsThresh, p
     args.push("--type", "rtsp", "--device", inputValue);
   } else if (inputType === "webcam") {
     const [capType, devNum] = String(inputValue || "usb:0").split(":");
-    args.push("--type", capType || "usb", "--device", devNum || "0");
+    // Forge UI uses "csi:N"; detect.py expects "mipi" + device index.
+    const pyType = capType === "csi" ? "mipi" : capType || "usb";
+    args.push("--type", pyType, "--device", devNum || "0");
   } else if (inputType === "video") {
     args.push("--type", "video", "--device", inputValue);
   } else if (inputType === "image") {
@@ -148,11 +150,53 @@ function buildPythonArgs({ model, inputType, inputValue, objThresh, nmsThresh, p
   return args;
 }
 
-function createUniversalState({ modelsDir, uploadsDir, detectScript }) {
+function isPersonModel(model) {
+  if (!model) return false;
+  if (String(model.name).toLowerCase() === "person") return true;
+  if (model.classes && model.classes.length === 1 && String(model.classes[0]).toLowerCase() === "person") {
+    return true;
+  }
+  return false;
+}
+
+function buildPersonArgs({ model, inputType, inputValue, objThresh, nmsThresh, logLevel, jpegQuality }) {
+  const args = [
+    "--model",
+    model.nb_path,
+    "--library",
+    model.lib_path,
+    "--level",
+    String(logLevel || 0),
+    "--json-stream",
+    "--jpeg-quality",
+    String(jpegQuality != null ? jpegQuality : 75),
+  ];
+
+  if (inputType === "rtsp") {
+    args.push("--type", "rtsp", "--device", inputValue);
+  } else if (inputType === "webcam") {
+    const [capType, devNum] = String(inputValue || "usb:0").split(":");
+    const pyType = capType === "csi" ? "mipi" : capType || "usb";
+    args.push("--type", pyType, "--device", devNum || "0");
+  } else if (inputType === "video") {
+    args.push("--type", "video", "--device", inputValue);
+  } else if (inputType === "image") {
+    args.push("--type", "image", "--device", inputValue);
+  }
+
+  if (objThresh != null) args.push("--conf", String(objThresh));
+  if (nmsThresh != null) args.push("--nms", String(nmsThresh));
+  return args;
+}
+
+function createUniversalState({ modelsDir, uploadsDir, detectScript, personScript = null, wsPath = "/universal" }) {
   ensureDir(modelsDir);
   ensureDir(uploadsDir);
 
-  // sessionId -> { model, args, inputType, inputValue, status, proc, ws, simInterval? }
+  /** Set UNIVERSAL_ALLOW_SIMULATION=1 to allow fake detections when detect.py is missing. */
+  const allowSimulation = process.env.UNIVERSAL_ALLOW_SIMULATION === "1";
+
+  // sessionId -> { model, args, inputType, inputValue, status, proc, ws, simInterval?, lastInferencePayload? }
   const sessions = new Map();
 
   const storage = multer.diskStorage({
@@ -172,6 +216,52 @@ function createUniversalState({ modelsDir, uploadsDir, detectScript }) {
         // ignore
       }
     }
+  }
+
+  function sendToSession(sid, payload) {
+    const session = sessions.get(sid);
+    if (!session) return;
+    if (payload && payload.type === "inference") {
+      session.lastInferencePayload = payload;
+    }
+    wsend(session.ws, payload);
+  }
+
+  /** Start person.py / detect.py (optionally before WebSocket attach — frames buffer until attach). */
+  function startInferenceProcess(sid, session, opts = {}) {
+    const requireOpenWs = opts.requireOpenWs === true;
+    if (!session) return;
+    if (session.proc || session.simInterval) return;
+    if (session.status === "stopped" || session.status === "error") return;
+    if (requireOpenWs && (!session.ws || session.ws.readyState !== WebSocket.OPEN)) return;
+
+    const scriptPath =
+      session.isPerson && personScript && fs.existsSync(personScript) ? personScript : detectScript;
+
+    if (!fs.existsSync(scriptPath)) {
+      if (!allowSimulation) {
+        sendToSession(sid, {
+          type: "error",
+          message: `Real inference unavailable: ${path.basename(scriptPath)} not found at ${scriptPath}`,
+        });
+        session.status = "error";
+        sessions.set(sid, session);
+        return;
+      }
+      sendToSession(sid, {
+        type: "log",
+        level: "warn",
+        message: `${path.basename(scriptPath)} not found — using simulation mode (set UNIVERSAL_ALLOW_SIMULATION=0 to disable)`,
+      });
+      startSimulation(sid, session);
+      return;
+    }
+
+    spawnInference(sid, session);
+  }
+
+  function ensureInferenceRunning(sid, session) {
+    startInferenceProcess(sid, session, { requireOpenWs: true });
   }
 
   function stopSession(sid) {
@@ -199,10 +289,7 @@ function createUniversalState({ modelsDir, uploadsDir, detectScript }) {
   }
 
   function startSimulation(sid, session) {
-    const send = (payload) => {
-      const s = sessions.get(sid);
-      wsend(s && s.ws, payload);
-    };
+    const send = (payload) => sendToSession(sid, payload);
     let frame = 0;
     const classes = session.model?.classes || ["Object"];
     send({ type: "status", status: "running", simulated: true });
@@ -248,21 +335,14 @@ function createUniversalState({ modelsDir, uploadsDir, detectScript }) {
   }
 
   function spawnInference(sid, session) {
-    const send = (payload) => {
-      const s = sessions.get(sid);
-      wsend(s && s.ws, payload);
-    };
-
-    if (!fs.existsSync(detectScript)) {
-      send({ type: "log", level: "warn", message: `detect.py not found at ${detectScript} — using simulation mode` });
-      startSimulation(sid, session);
-      return;
-    }
+    const send = (payload) => sendToSession(sid, payload);
+    const scriptPath =
+      session.isPerson && personScript && fs.existsSync(personScript) ? personScript : detectScript;
 
     let proc;
     try {
-      proc = spawn("python3", [detectScript, ...session.args], {
-        cwd: path.dirname(detectScript),
+      proc = spawn("python3", [scriptPath, ...session.args], {
+        cwd: path.dirname(scriptPath),
         env: { ...process.env, PYTHONUNBUFFERED: "1" },
       });
     } catch (e) {
@@ -318,6 +398,14 @@ function createUniversalState({ modelsDir, uploadsDir, detectScript }) {
     session.ws = ws;
     sessions.set(sessionId, session);
     wsend(ws, { type: "attached", sessionId, status: session.status });
+    if (session.lastInferencePayload) {
+      wsend(ws, session.lastInferencePayload);
+    }
+    if (session.status === "ready") {
+      session.status = "running";
+      sessions.set(sessionId, session);
+    }
+    ensureInferenceRunning(sessionId, session);
   }
 
   function handleStart(ws, msg) {
@@ -330,16 +418,17 @@ function createUniversalState({ modelsDir, uploadsDir, detectScript }) {
     session.ws = ws;
     sessions.set(sessionId, session);
 
-    // If inference is already running (spawned by REST start), just acknowledge.
     if (session.proc || session.simInterval) {
       wsend(ws, { type: "status", status: "running" });
       return;
     }
 
-    session.status = "running";
-    sessions.set(sessionId, session);
+    if (session.status === "ready") {
+      session.status = "running";
+      sessions.set(sessionId, session);
+    }
     wsend(ws, { type: "status", status: "starting", message: "Spawning inference process..." });
-    spawnInference(sessionId, session);
+    ensureInferenceRunning(sessionId, session);
   }
 
   function handleStop(ws, msg) {
@@ -411,18 +500,50 @@ function createUniversalState({ modelsDir, uploadsDir, detectScript }) {
       const model = models.find((m) => m.name === modelName);
       if (!model) return res.status(404).json({ error: `Model '${modelName}' not found` });
 
+      if (!fs.existsSync(detectScript) && !allowSimulation) {
+        return res.status(503).json({
+          error: "Real inference is not available on this device (detect.py missing).",
+          detectScript,
+          hint: "Install universal/detect.py on the edge device, or set UNIVERSAL_ALLOW_SIMULATION=1 for dev-only fake mode.",
+        });
+      }
+
+      if (!model.nb_path || !model.lib_path) {
+        return res.status(400).json({
+          error: `Model '${modelName}' is missing .nb or .so files.`,
+          hint: "Upload a complete model folder under universal/models (or legacy Universal_Model_Detection_Dashboard-main/models).",
+        });
+      }
+
       const sid = existingId || uuidv4();
       if (sessions.has(sid)) stopSession(sid);
 
-      const args = buildPythonArgs({ model, inputType, inputValue, objThresh, nmsThresh, platform, logLevel, jpegQuality });
-      const session = { model, args, inputType, inputValue, status: "running", proc: null, ws: null };
+      const usePerson = Boolean(personScript && isPersonModel(model));
+      const args = usePerson
+        ? buildPersonArgs({ model, inputType, inputValue, objThresh, nmsThresh, logLevel, jpegQuality })
+        : buildPythonArgs({ model, inputType, inputValue, objThresh, nmsThresh, platform, logLevel, jpegQuality });
+      const scriptPath = usePerson ? personScript : detectScript;
+      const session = {
+        model,
+        args,
+        inputType,
+        inputValue,
+        isPerson: usePerson,
+        status: "ready",
+        proc: null,
+        ws: null,
+        simInterval: null,
+        lastInferencePayload: null,
+      };
       sessions.set(sid, session);
 
-      // Start inference immediately on REST start (so stream works even if clients only "attach").
-      // WS "start" remains supported and idempotent.
-      spawnInference(sid, session);
-
-      res.json({ sessionId: sid, command: `python3 ${detectScript} ${args.join(" ")}` });
+      // Wait for WebSocket attach before spawning — browser preview must release V4L2 first.
+      res.json({
+        sessionId: sid,
+        command: `python3 ${scriptPath} ${args.join(" ")}`,
+        awaitAttach: true,
+        isPerson: usePerson,
+      });
     });
 
     router.post("/api/inference/stop/:sid", (req, res) => {
@@ -432,7 +553,16 @@ function createUniversalState({ modelsDir, uploadsDir, detectScript }) {
 
     router.get("/api/inference/sessions", (req, res) => {
       const list = [];
-      sessions.forEach((v, k) => list.push({ id: k, status: v.status, model: v.model?.name, inputType: v.inputType }));
+      sessions.forEach((v, k) =>
+        list.push({
+          id: k,
+          status: v.status,
+          model: v.model?.name,
+          inputType: v.inputType,
+          simulated: Boolean(v.simInterval),
+          running: Boolean(v.proc || v.simInterval),
+        }),
+      );
       res.json({ sessions: list });
     });
 
@@ -440,7 +570,7 @@ function createUniversalState({ modelsDir, uploadsDir, detectScript }) {
   }
 
   function attachWebSocket(server) {
-    const wss = new WebSocket.Server({ server, path: "/universal" });
+    const wss = new WebSocket.Server({ server, path: wsPath });
     wss.on("connection", (ws, req) => {
       ws.on("message", (raw) => {
         let msg;
@@ -486,5 +616,5 @@ function createUniversalState({ modelsDir, uploadsDir, detectScript }) {
   return { createRouter, attachWebSocket, sessions, stopSession };
 }
 
-module.exports = { defaultPaths, createUniversalState };
+module.exports = { defaultPaths, createUniversalState, isPersonModel, buildPersonArgs };
 

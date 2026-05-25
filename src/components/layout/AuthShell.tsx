@@ -25,53 +25,53 @@ export function AuthShell({
   heroVideoSrc,
   forceLight = false,
 }: AuthShellProps) {
+  const showHeroPanel = Boolean(heroVideoSrc);
+
   return (
     <div
       className={cn(
-        "relative flex min-h-screen flex-col lg:flex-row",
+        "relative flex min-h-screen flex-col",
+        showHeroPanel && "lg:flex-row",
         forceLight && "auth-theme-light",
       )}
     >
-      <div className="auth-hero-bg relative hidden flex-1 flex-col justify-between overflow-hidden border-r border-white/10 text-sidebar-foreground lg:flex">
-        {heroVideoSrc ? (
-          <>
-            <video
-              className="absolute inset-0 h-full w-full object-cover"
-              src={heroVideoSrc}
-              autoPlay
-              muted
-              loop
-              playsInline
-              preload="auto"
-              aria-hidden
-            />
-            <div
-              className="pointer-events-none absolute inset-0 bg-gradient-to-br from-sidebar/92 via-sidebar/75 to-sidebar/55"
-              aria-hidden
-            />
-            <div
-              className="pointer-events-none absolute inset-0 bg-gradient-to-t from-sidebar via-transparent to-sidebar/40"
-              aria-hidden
-            />
-          </>
-        ) : null}
-
-        <div className="relative z-10 flex flex-1 flex-col justify-between p-10">
-          <div>
-            <p className="text-sm font-medium uppercase tracking-widest text-sidebar-foreground/80">Atomo</p>
-            <h1 className="mt-6 max-w-md text-3xl font-semibold leading-tight tracking-tight drop-shadow-sm">
-              Edge intelligence for your processing unit
-            </h1>
-            <p className="mt-4 max-w-sm text-sm leading-relaxed text-sidebar-foreground/85">
-              Register devices, run AI models on cameras, and monitor detections from one dashboard.
-            </p>
+      {showHeroPanel ? (
+        <div className="auth-hero-bg relative hidden flex-1 flex-col justify-between overflow-hidden border-r border-white/10 text-sidebar-foreground lg:flex">
+          <video
+            className="absolute inset-0 h-full w-full object-cover"
+            src={heroVideoSrc}
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="auto"
+            aria-hidden
+          />
+          <div
+            className="pointer-events-none absolute inset-0 bg-gradient-to-br from-sidebar/92 via-sidebar/75 to-sidebar/55"
+            aria-hidden
+          />
+          <div
+            className="pointer-events-none absolute inset-0 bg-gradient-to-t from-sidebar via-transparent to-sidebar/40"
+            aria-hidden
+          />
+          <div className="relative z-10 flex flex-1 flex-col justify-between p-10">
+            <div>
+              <p className="text-sm font-medium uppercase tracking-widest text-sidebar-foreground/80">Atomo</p>
+              <h1 className="mt-6 max-w-md text-3xl font-semibold leading-tight tracking-tight drop-shadow-sm">
+                Edge intelligence for your processing unit
+              </h1>
+              <p className="mt-4 max-w-sm text-sm leading-relaxed text-sidebar-foreground/85">
+                Register devices, run AI models on cameras, and monitor detections from one dashboard.
+              </p>
+            </div>
+            <p className="font-mono text-xs text-sidebar-foreground/60">Atomo Processing Unit · v2.1</p>
           </div>
-          <p className="font-mono text-xs text-sidebar-foreground/60">Atomo Processing Unit · v2.1</p>
         </div>
-      </div>
+      ) : null}
 
       <div className="flex flex-1 flex-col items-center justify-center px-4 py-10 sm:px-8">
-        {heroVideoSrc ? (
+        {showHeroPanel ? (
           <div className="relative mb-8 h-40 w-full max-w-md overflow-hidden rounded-2xl border border-border/60 shadow-elevated lg:hidden">
             <video
               className="absolute inset-0 h-full w-full object-cover"

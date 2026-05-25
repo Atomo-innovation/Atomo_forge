@@ -9,11 +9,17 @@
  * - USB/CSI: `<type>|<device>` (e.g. usb|usb:0)
  */
 
+import { userScopedLocalStorageKey } from "@/services/userScopedStorage";
+
 const KEY = "atomo-forge:camera-id-by-fingerprint:v1";
+
+function storageKey(): string {
+  return userScopedLocalStorageKey(KEY);
+}
 
 function readMap(): Record<string, string> {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(storageKey());
     if (!raw) return {};
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== "object") return {};
@@ -25,7 +31,7 @@ function readMap(): Record<string, string> {
 
 function writeMap(next: Record<string, string>): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify(next));
+    localStorage.setItem(storageKey(), JSON.stringify(next));
   } catch {
     // ignore
   }
@@ -55,7 +61,7 @@ export function getOrCreateStableCameraId(fingerprint: string): string {
 
 export function clearCameraIdMap(): void {
   try {
-    localStorage.removeItem(KEY);
+    localStorage.removeItem(storageKey());
   } catch {
     // ignore
   }

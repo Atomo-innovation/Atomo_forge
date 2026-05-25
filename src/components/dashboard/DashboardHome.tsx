@@ -32,6 +32,8 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { cn } from "@/lib/utils";
 import { canAddMoreCameras, MAX_CAMERAS } from "@/lib/cameraLimits";
+import { useAuthUsername } from "@/contexts/AuthUsernameContext";
+import { userScopedLocalStorageKey } from "@/services/userScopedStorage";
 
 interface Props {
   cameras: CameraConfig[];
@@ -87,9 +89,12 @@ function normalizeSpans(raw: unknown): Record<PanelId, WidthMode> {
   return next;
 }
 
-function loadLayout(): { order: PanelId[]; spans: Record<PanelId, WidthMode> } {
+function loadLayout(
+  v2Key: string,
+  v1Key: string,
+): { order: PanelId[]; spans: Record<PanelId, WidthMode> } {
   try {
-    const v2 = localStorage.getItem(STORAGE_KEY_V2);
+    const v2 = localStorage.getItem(v2Key);
     if (v2) {
       const p = JSON.parse(v2) as { order?: unknown; spans?: unknown };
       if (p && typeof p === "object" && Array.isArray(p.order)) {
@@ -99,12 +104,12 @@ function loadLayout(): { order: PanelId[]; spans: Record<PanelId, WidthMode> } {
         };
       }
     }
-    const v1 = localStorage.getItem(STORAGE_KEY_V1);
+    const v1 = localStorage.getItem(v1Key);
     if (v1) {
       const order = normalizeOrder(JSON.parse(v1));
       const layout = { order, spans: { ...DEFAULT_SPANS } };
       try {
-        localStorage.setItem(STORAGE_KEY_V2, JSON.stringify(layout));
+        localStorage.setItem(v2Key, JSON.stringify(layout));
       } catch {
         // ignore
       }
@@ -116,9 +121,9 @@ function loadLayout(): { order: PanelId[]; spans: Record<PanelId, WidthMode> } {
   return { order: [...DEFAULT_ORDER], spans: { ...DEFAULT_SPANS } };
 }
 
-function persistLayout(order: PanelId[], spans: Record<PanelId, WidthMode>) {
+function persistLayout(v2Key: string, order: PanelId[], spans: Record<PanelId, WidthMode>) {
   try {
-    localStorage.setItem(STORAGE_KEY_V2, JSON.stringify({ order, spans }));
+    localStorage.setItem(v2Key, JSON.stringify({ order, spans }));
   } catch {
     // ignore
   }
@@ -223,10 +228,19 @@ function SortablePanel({
 }
 
 const DashboardHome = ({ cameras, onAddCamera, onUpdateCamera, onViewCamera, onOpenSettings }: Props) => {
+  const username = useAuthUsername();
+  const layoutV2Key = userScopedLocalStorageKey(STORAGE_KEY_V2, username);
+  const layoutV1Key = userScopedLocalStorageKey(STORAGE_KEY_V1, username);
   const canAddCamera = canAddMoreCameras(cameras.length);
-  const initial = useMemo(() => loadLayout(), []);
+  const initial = useMemo(() => loadLayout(layoutV2Key, layoutV1Key), [layoutV2Key, layoutV1Key]);
   const [order, setOrder] = useState<PanelId[]>(initial.order);
   const [spans, setSpans] = useState<Record<PanelId, WidthMode>>(initial.spans);
+
+  useEffect(() => {
+    const next = loadLayout(layoutV2Key, layoutV1Key);
+    setOrder(next.order);
+    setSpans(next.spans);
+  }, [layoutV2Key, layoutV1Key]);
   const [overviewAddOpen, setOverviewAddOpen] = useState(false);
   const [overviewWorkspace, setOverviewWorkspace] = useState<CameraWorkspaceId>("cameras");
   const [renameTarget, setRenameTarget] = useState<CameraConfig | null>(null);
@@ -255,12 +269,12 @@ const DashboardHome = ({ cameras, onAddCamera, onUpdateCamera, onViewCamera, onO
     setSpans((s) => {
       const next = { ...s, [id]: s[id] === "full" ? "half" : "full" } as Record<PanelId, WidthMode>;
       setOrder((o) => {
-        persistLayout(o, next);
+        persistLayout(layoutV2Key, o, next);
         return o;
       });
       return next;
     });
-  }, []);
+  }, [layoutV2Key]);
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
@@ -270,7 +284,7 @@ const DashboardHome = ({ cameras, onAddCamera, onUpdateCamera, onViewCamera, onO
       const newIndex = o.indexOf(over.id as PanelId);
       if (oldIndex < 0 || newIndex < 0) return o;
       const next = arrayMove(o, oldIndex, newIndex);
-      persistLayout(next, spans);
+      persistLayout(layoutV2Key, next, spans);
       return next;
     });
   };
@@ -278,7 +292,7 @@ const DashboardHome = ({ cameras, onAddCamera, onUpdateCamera, onViewCamera, onO
   const resetLayout = () => {
     setOrder([...DEFAULT_ORDER]);
     setSpans({ ...DEFAULT_SPANS });
-    persistLayout([...DEFAULT_ORDER], { ...DEFAULT_SPANS });
+    persistLayout(layoutV2Key, [...DEFAULT_ORDER], { ...DEFAULT_SPANS });
   };
 
   useEffect(() => {
@@ -665,7 +679,7 @@ const DashboardHome = ({ cameras, onAddCamera, onUpdateCamera, onViewCamera, onO
     <div className="animate-fade-in">
       <PageHeader
         title="Overview"
-        description="Key metrics, cameras, and recent activity. Drag panel headers to reorder; layout is saved on this device."
+        // description="Key metrics, cameras, and recent activity. Drag panel headers to reorder; layout is saved on this device."
         actions={
           <button
             type="button"
@@ -701,7 +715,6 @@ const DashboardHome = ({ cameras, onAddCamera, onUpdateCamera, onViewCamera, onO
         onWorkspaceChange={setOverviewWorkspace}
         totalCameraCount={cameras.length}
         onAddCamera={onAddCamera}
-        onUpdateCamera={onUpdateCamera}
       />
       <RenameCameraDialog
         open={renameTarget !== null}

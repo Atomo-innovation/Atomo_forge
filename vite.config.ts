@@ -172,22 +172,39 @@ function makeQuietLogger() {
 }
 
 /** Remind devs of this-PC vs LAN URLs when the dev server starts. */
-function forgeDevUrlBannerPlugin(host: string, port: number, lanHttpUrl?: string) {
-  const url = `https://${host}:${port}/`;
+function forgeDevUrlBannerPlugin(
+  host: string,
+  port: number,
+  lanHttpUrl?: string,
+  boardPlainHttp?: boolean,
+) {
+  const scheme = boardPlainHttp ? "http" : "https";
+  const url = `${scheme}://${host}:${port}/`;
   return {
     name: "forge-dev-url-banner",
     configureServer(server: { httpServer?: { once: (e: string, fn: () => void) => void } }) {
       server.httpServer?.once("listening", () => {
-        console.info(`\n[forge] This PC: ${url}`);
+        if (boardPlainHttp) {
+          console.info("\n[forge] Board browser URL: http://electron.local/");
+          console.info(`[forge] Direct Vite: ${url}`);
+        } else {
+          console.info(`\n[forge] This PC: ${url}`);
+        }
         const other =
           process.env.FORGE_OTHER_DEVICES_URL ||
           process.env.VITE_OTHER_DEVICES_URL ||
           (lanHttpUrl ? `http://electron.local (mDNS) or ${lanHttpUrl}` : "");
         if (other) {
           console.info(`[forge] Other devices (same Wi‑Fi): ${other}`);
-          console.info("[forge] They should type http://electron.local (run npm run lan:setup once if that fails).");
+          if (!boardPlainHttp) {
+            console.info("[forge] They should type http://electron.local (run npm run lan:setup once if that fails).");
+          }
         }
-        console.info("[forge] https://electron.local/ needs Caddy on :443 — run: npm run caddy:start\n");
+        if (boardPlainHttp) {
+          console.info("[forge] If the browser shows 502, run: npm run board:caddy-sync\n");
+        } else {
+          console.info("[forge] https://electron.local/ needs Caddy on :443 — run: npm run caddy:start\n");
+        }
       });
     },
   };
@@ -215,15 +232,19 @@ export default defineConfig(({ mode }) => {
     .filter(Boolean);
   const previewPort = Number(env.VITE_PREVIEW_PORT || 4173);
 
-  const devHttps = {
-    key: fs.readFileSync(path.resolve(__viteRootDir, "./devcert/key.pem")),
-    cert: fs.readFileSync(path.resolve(__viteRootDir, "./devcert/cert.pem")),
-  };
+  const boardPlainHttp =
+    env.FORGE_VITE_PLAIN_HTTP === "1" || process.env.FORGE_VITE_PLAIN_HTTP === "1";
+  const devHttps = boardPlainHttp
+    ? undefined
+    : {
+        key: fs.readFileSync(path.resolve(__viteRootDir, "./devcert/key.pem")),
+        cert: fs.readFileSync(path.resolve(__viteRootDir, "./devcert/cert.pem")),
+      };
 
   /** Same routes on dev server and preview (`vite preview`) so `/api` is never served as SPA HTML. */
   const forgeDevProxy = {
     "/api": { target: apiTarget, changeOrigin: true },
-    "/universal": { target: apiTarget, changeOrigin: true, ws: true },
+    "/asnn": { target: apiTarget, changeOrigin: true, ws: true },
     "/pdeu-ws-fire": {
       target: "http://127.0.0.1:8080",
       changeOrigin: true,
@@ -272,13 +293,20 @@ export default defineConfig(({ mode }) => {
         ? false
         : env.FORGE_DEV_OPEN_URL ||
           (env.FORGE_OPEN_NO_PORT === "1"
-            ? `https://${devHost}/`
-            : `https://${devHost}:${devPort}/`),
-    hmr: {
-      host: devHost,
-      clientPort: devPort,
-      overlay: false,
-    },
+            ? `${boardPlainHttp ? "http" : "https"}://${devHost}/`
+            : `${boardPlainHttp ? "http" : "https"}://${devHost}:${devPort}/`),
+    // Use the browser URL for HMR (443 via Caddy, :80 LAN, or :8443 direct). Forcing
+    // host=electron.local + clientPort=8443 breaks WS when the page is opened on :443
+    // and causes endless full-page reloads.
+    hmr:
+      env.FORGE_HMR === "0"
+        ? false
+        : {
+            overlay: false,
+            ...(env.FORGE_HMR_CLIENT_PORT
+              ? { clientPort: Number(env.FORGE_HMR_CLIENT_PORT) }
+              : {}),
+          },
     proxy: forgeDevProxy,
   },
   preview: {
@@ -290,10 +318,10 @@ export default defineConfig(({ mode }) => {
     proxy: forgeDevProxy,
   },
   plugins: [
-    forgeDevUrlBannerPlugin(devHost, devPort, lanHttpUrl),
+    forgeDevUrlBannerPlugin(devHost, devPort, lanHttpUrl, boardPlainHttp),
     pdeuTwinAutoStartPlugin(__viteRootDir, twinHttpPort),
     react(),
-    mode === "development" && componentTagger(),
+    mode === "development" && env.FORGE_LOVABLE_TAGGER === "1" && componentTagger(),
   ].filter(Boolean),
   resolve: {
     alias: {

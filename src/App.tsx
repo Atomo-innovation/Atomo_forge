@@ -18,6 +18,7 @@ import {
 import { hasDeviceProfile } from "@/services/deviceProfile";
 import { hydrateDeviceProfileFromServer } from "@/services/deviceRegistrations";
 import { AuthUsernameProvider } from "@/contexts/AuthUsernameContext";
+import { applyBoardLocalAuthIfEnabled } from "@/lib/boardDevAuth";
 
 const queryClient = new QueryClient();
 
@@ -27,12 +28,10 @@ const queryClient = new QueryClient();
  */
 const ForgeRoutes = () => {
   const navigate = useNavigate();
-  const [isLoggedIn, setIsLoggedIn] = useState(() => readPersistedSession() != null);
-  const [loggedInUsername, setLoggedInUsername] = useState<string | null>(() => readPersistedSession()?.username ?? null);
-  const [registrationGateOpen, setRegistrationGateOpen] = useState(() => {
-    const p = readPersistedSession();
-    return Boolean(p != null && hasDeviceProfile(p.username ?? undefined));
-  });
+  const initialAuth = applyBoardLocalAuthIfEnabled();
+  const [isLoggedIn, setIsLoggedIn] = useState(() => initialAuth.isLoggedIn);
+  const [loggedInUsername, setLoggedInUsername] = useState<string | null>(() => initialAuth.username);
+  const [registrationGateOpen, setRegistrationGateOpen] = useState(() => initialAuth.registrationGateOpen);
 
   const handleLoginSuccess = async (username: string) => {
     const u = username.trim().toLowerCase();

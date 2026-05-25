@@ -73,7 +73,7 @@ const ModelsView = () => {
         fd.append("files", renamedFile);
       }
 
-      const res = await fetch("/universal/api/models/upload-folder", {
+      const res = await fetch("/asnn/api/models/upload-folder", {
         method: "POST",
         body: fd,
       });
@@ -230,7 +230,7 @@ const ModelsView = () => {
     const wsCandidates: string[] = [];
     {
       const proto = window.location.protocol === "https:" ? "wss" : "ws";
-      wsCandidates.push(`${proto}://${window.location.host}/universal`);
+      wsCandidates.push(`${proto}://${window.location.host}/asnn`);
     }
 
     {
@@ -252,7 +252,7 @@ const ModelsView = () => {
     const connectAt = (i: number) => {
       const wsUrl = wsCandidates[i];
       if (!wsUrl) {
-        setRunError(`WebSocket error talking to Universal dashboard (tried: ${wsCandidates.join(", ")})`);
+        setRunError(`WebSocket error talking to ASNN dashboard (tried: ${wsCandidates.join(", ")})`);
         setRunState("idle");
         return;
       }
@@ -293,7 +293,7 @@ const ModelsView = () => {
             setFrameStats({ fps: msg.fps, inference_ms: msg.inference_ms, frame: msg.frame });
           }
         } else if (msg?.type === "error") {
-          setRunError(typeof msg.message === "string" ? msg.message : "Universal inference error");
+          setRunError(typeof msg.message === "string" ? msg.message : "ASNN inference error");
           setRunState("idle");
         }
       };
@@ -308,7 +308,7 @@ const ModelsView = () => {
           connectAt(i + 1);
           return;
         }
-        setRunError("WebSocket error talking to Universal dashboard");
+        setRunError("WebSocket error talking to ASNN dashboard");
         setRunState("idle");
       };
 
@@ -355,7 +355,7 @@ const ModelsView = () => {
 
         const fd = new FormData();
         fd.append("file", videoFile);
-        const uploadRes = await fetch("/universal/api/upload", { method: "POST", body: fd });
+        const uploadRes = await fetch("/asnn/api/upload", { method: "POST", body: fd });
         if (!uploadRes.ok) throw new Error(`Upload failed (${uploadRes.status})`);
 
         const uploadData = (await uploadRes.json()) as { path?: string };
@@ -363,7 +363,7 @@ const ModelsView = () => {
         inputValue = uploadData.path;
       }
 
-      const res = await fetch("/universal/api/inference/start", {
+      const res = await fetch("/asnn/api/inference/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -426,7 +426,7 @@ const ModelsView = () => {
 
     if (!sid) return;
     try {
-      await fetch(`/universal/api/inference/stop/${encodeURIComponent(sid)}`, { method: "POST" });
+      await fetch(`/asnn/api/inference/stop/${encodeURIComponent(sid)}`, { method: "POST" });
     } catch {
       // ignore
     }
@@ -517,7 +517,7 @@ const ModelsView = () => {
         {loading && (
           <div className="text-xs text-muted-foreground bg-muted/30 border border-border/40 rounded-lg px-3 py-2 flex items-center gap-2">
             <div className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse" />
-            Loading models from Universal Model Detection Dashboard…
+            Loading models from ASNN Model Detection Dashboard…
           </div>
         )}
         {error && <div className="text-xs text-destructive bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2">{error}</div>}
@@ -739,7 +739,7 @@ const ModelsView = () => {
                         <div className="flex items-start justify-between gap-4">
                           <div>
                             <div className="text-sm font-semibold">Webcam is opened</div>
-                            <div className="text-xs text-muted-foreground mt-1">We’ll start the Universal dashboard inference next.</div>
+                            <div className="text-xs text-muted-foreground mt-1">We’ll start the ASNN dashboard inference next.</div>
                           </div>
                           <button
                             onClick={() => startInference("webcam")}

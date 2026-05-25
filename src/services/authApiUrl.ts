@@ -1,7 +1,7 @@
 /**
  * Auth API base (login, device registration, MeshCentral helpers).
  *
- * • Dev with `npm run dev`: leave unset — Vite proxies `/api` and `/universal` to the auth-server port.
+ * • Dev with `npm run dev`: leave unset — Vite proxies `/api` and `/asnn` to the auth-server port.
  * • Electron / static preview / odd hosts: set `VITE_AUTH_API_ORIGIN=http://127.0.0.1:3003` (or LAN URL).
  */
 

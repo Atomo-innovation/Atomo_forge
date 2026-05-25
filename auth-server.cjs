@@ -12,7 +12,7 @@ const path = require('path');
 const fs = require('fs');
 const http = require('http');
 const multer = require('multer');
-const { defaultPaths, createUniversalState } = require('./universal/universal-backend.cjs');
+const { defaultAsnnPaths, createAsnnState } = require('./asnn/asnn-backend.cjs');
 const { runMigrations } = require('./scripts/db-migrate.cjs');
 const { getDevNetworkInfo } = require('./scripts/forge-network.cjs');
 
@@ -20,25 +20,46 @@ const app = express();
 app.use(cors({ origin: true }));
 app.use(express.json());
 
+function loadDetectionExportModule() {
+  const modPath = path.join(__dirname, 'detection-export-api.cjs');
+  try {
+    delete require.cache[require.resolve(modPath)];
+  } catch {
+    /* first load */
+  }
+  return require(modPath);
+}
+const detectionExport = loadDetectionExportModule();
+app.post('/api/detection-export/pick-folder', express.json(), detectionExport.handlePickFolder(__dirname));
+app.put('/api/detection-export/folders', express.json(), (req, res, next) => {
+  if (req.body?.openPicker === true) {
+    return detectionExport.handlePickFolder(__dirname)(req, res);
+  }
+  next();
+});
+app.use('/api/detection-export', detectionExport.createDetectionExportRouter(__dirname));
+
 // Build an HTTP server so we can attach WebSocket endpoints.
 const server = http.createServer(app);
 
-// ── Universal inference backend embedded in Forge ─────────────────────────────
-const { modelsDir: universalModelsDir, uploadsDir: universalUploadsDir, detectScript: universalDetectScript } = defaultPaths();
-const universal = createUniversalState({
-  modelsDir: universalModelsDir,
-  uploadsDir: universalUploadsDir,
-  detectScript: universalDetectScript,
+// ── ASNN dashboard (all models + inference; models in asnn-dashboard/models) ──
+const { modelsDir: asnnModelsDir, uploadsDir: asnnUploadsDir, detectScript: asnnDetectScript, personScript: asnnPersonScript } =
+  defaultAsnnPaths();
+const asnn = createAsnnState({
+  modelsDir: asnnModelsDir,
+  uploadsDir: asnnUploadsDir,
+  detectScript: asnnDetectScript,
+  personScript: asnnPersonScript,
 });
-app.use('/universal', universal.createRouter());
-universal.attachWebSocket(server);
+app.use('/asnn', asnn.createRouter());
+asnn.attachWebSocket(server);
 
 // ── Model folder upload endpoint ─────────────────────────────────
 const modelUploadStorage = multer.diskStorage({
   destination: (req, file, cb) => {
     const parts = file.originalname.split('__SEP__');
     const folderName = parts[0] || 'unknown_model';
-    const modelDir = path.join(universalModelsDir, folderName);
+    const modelDir = path.join(asnnModelsDir, folderName);
     fs.mkdirSync(modelDir, { recursive: true });
     cb(null, modelDir);
   },
@@ -49,7 +70,7 @@ const modelUploadStorage = multer.diskStorage({
 });
 const modelUpload = multer({ storage: modelUploadStorage, limits: { fileSize: 500 * 1024 * 1024 } });
 
-app.post('/universal/api/models/upload-folder', modelUpload.array('files'), (req, res) => {
+app.post('/asnn/api/models/upload-folder', modelUpload.array('files'), (req, res) => {
   if (!req.files || req.files.length === 0)
     return res.status(400).json({ error: 'No files uploaded' });
 
@@ -61,7 +82,7 @@ app.post('/universal/api/models/upload-folder', modelUpload.array('files'), (req
   const hasSo = uploaded.some(f => f.endsWith('.so'));
 
   if (!hasNb || !hasSo) {
-    const modelDir = path.join(universalModelsDir, folderName);
+    const modelDir = path.join(asnnModelsDir, folderName);
     try { fs.rmSync(modelDir, { recursive: true, force: true }); } catch(e) {}
     return res.status(400).json({ error: 'Model folder must contain .nb and .so files' });
   }
@@ -453,7 +474,7 @@ app.get('/api/devices/registration-summary', async (req, res) => {
 
 // POST /api/system/open-folder
 // body: { folderPath }
-// Security: only allow opening folders inside UNIVERSAL_MODELS_DIR
+// Security: only allow opening folders inside ASNN models dir
 app.post('/api/system/open-folder', async (req, res) => {
   const folderPath = req.body?.folderPath;
   if (!folderPath || typeof folderPath !== 'string') {
@@ -461,7 +482,7 @@ app.post('/api/system/open-folder', async (req, res) => {
   }
 
   const resolved = path.resolve(folderPath);
-  if (!(resolved === universalModelsDir || resolved.startsWith(universalModelsDir + path.sep))) {
+  if (!(resolved === asnnModelsDir || resolved.startsWith(asnnModelsDir + path.sep))) {
     return res.status(403).json({ ok: false, error: 'Path not allowed' });
   }
 
@@ -986,7 +1007,7 @@ server.listen(PORT, AUTH_BIND_HOST, () => {
   if (net.otherDevicesUrl) {
     console.log(`[forge] Other devices (same Wi‑Fi): ${net.otherDevicesUrl}`);
   }
-  console.log('[universal] embedded backend mounted at /universal (models:', universalModelsDir + ')');
+  console.log('[asnn] embedded backend mounted at /asnn (models:', asnnModelsDir + ', person:', asnnPersonScript + ')');
   console.log(
     `[mysql] configured ${mysqlHost}:${mysqlPort} user=${process.env.MYSQL_USER || 'atomo'} db=${process.env.MYSQL_DATABASE || 'meshcentral'}`
   );

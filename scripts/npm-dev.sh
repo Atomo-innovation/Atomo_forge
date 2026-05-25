@@ -5,6 +5,20 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+if bash "$ROOT/scripts/detect-forge-board.sh"; then
+  # shellcheck source=scripts/forge-board-env.sh
+  source "$ROOT/scripts/forge-board-env.sh"
+  LAN_HINT="${FORGE_LAN_IP:-}"
+  if [[ -z "$LAN_HINT" ]]; then
+    LAN_HINT="$(node "$ROOT/scripts/forge-network.cjs" 2>/dev/null || true)"
+  fi
+  printf '[forge] Board — open http://%s/ in the browser (not https://). Keep this terminal open.\n' "${LAN_HINT:-<LAN-IP>}"
+  if [[ -n "$LAN_HINT" ]] && getent ahostsv4 electron.local 2>/dev/null | awk '{print $1}' | grep -qE '^172\.(1[678]|2[0-9])\.'; then
+    printf '[forge] WARN: electron.local resolves to Docker, not Wi‑Fi. Fix: npm run board:fix-hosts\n'
+    printf '[forge] Or use: http://%s/\n' "$LAN_HINT"
+  fi
+fi
+
 NO_TUNNEL=0
 for arg in "$@"; do
   case "$arg" in
@@ -21,7 +35,14 @@ if [[ -n "${FORGE_LAN_IP:-}" ]]; then
 fi
 bash scripts/print-lan-access.sh
 
-if ss -tln 2>/dev/null | grep -qE ':443\b'; then
+if [[ "${FORGE_BOARD:-}" == "1" ]]; then
+  if ss -tln 2>/dev/null | grep -qE ':80\b'; then
+    export FORGE_OPEN_NO_PORT=1
+    export FORGE_DEV_OPEN_URL="${FORGE_DEV_OPEN_URL:-http://electron.local/}"
+  elif [[ -n "${FORGE_LAN_IP:-}" ]]; then
+    export FORGE_DEV_OPEN_URL="${FORGE_DEV_OPEN_URL:-https://${FORGE_LAN_IP}:8443/}"
+  fi
+elif ss -tln 2>/dev/null | grep -qE ':443\b'; then
   export FORGE_OPEN_NO_PORT=1
   export FORGE_DEV_OPEN_URL="https://electron.local/"
 fi

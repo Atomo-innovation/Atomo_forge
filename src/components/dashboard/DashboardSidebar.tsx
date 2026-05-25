@@ -11,6 +11,7 @@ import {
   Box,
 } from "lucide-react";
 import type { DashboardView } from "@/pages/Dashboard";
+import { EVENTS_TAB_ENABLED } from "@/lib/featureFlags";
 import { cn } from "@/lib/utils";
 
 const SIDEBAR_LOGO_SRC = `${import.meta.env.BASE_URL}al.png`;
@@ -44,7 +45,7 @@ const navGroups: { label: string; items: NavItem[] }[] = [
   {
     label: "System",
     items: [
-      { id: "events", label: "Events", icon: Bell },
+      ...(EVENTS_TAB_ENABLED ? [{ id: "events" as const, label: "Events", icon: Bell }] : []),
       { id: "models", label: "AI models", icon: Brain },
       { id: "settings", label: "Settings", icon: Settings },
     ],

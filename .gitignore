@@ -16,6 +16,8 @@ dist
 !.env.example
 dist-ssr
 *.local
+.forge-board
+.data/
 
 # Editor directories and files
 .vscode/*

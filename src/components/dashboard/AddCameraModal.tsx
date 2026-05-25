@@ -3,8 +3,9 @@ import { createPortal } from "react-dom";
 import { Usb, Wifi, CircuitBoard, X } from "lucide-react";
 import { CAMERA_WORKSPACE_TITLE, type CameraConfig, type CameraWorkspaceId } from "@/pages/Dashboard";
 import { getCameraFingerprint, getOrCreateStableCameraId } from "@/services/cameraIdentity";
-import { useModels } from "@/hooks/useModels";
 import ModelSelector from "@/components/dashboard/ModelSelector";
+import { useWorkspaceModels } from "@/hooks/useWorkspaceModels";
+import { inferenceBackendForWorkspace } from "@/lib/inferenceBackend";
 import { canAddMoreCameras, MAX_CAMERAS, MAX_CAMERAS_MESSAGE } from "@/lib/cameraLimits";
 
 type ModalStep = "type" | "config";
@@ -21,7 +22,6 @@ export interface AddCameraModalProps {
   /** Total cameras across all workspaces (limit is global). */
   totalCameraCount: number;
   onAddCamera: (camera: CameraConfig, opts?: { openLive?: boolean }) => void;
-  onUpdateCamera: (cameraId: string, patch: Partial<CameraConfig>) => void;
 }
 
 const cameraTypes = [
@@ -39,7 +39,6 @@ export function AddCameraModal({
   onWorkspaceChange,
   totalCameraCount,
   onAddCamera,
-  onUpdateCamera,
 }: AddCameraModalProps) {
   const atLimit = !canAddMoreCameras(totalCameraCount);
   const [modalStep, setModalStep] = useState<ModalStep>("type");
@@ -48,12 +47,9 @@ export function AddCameraModal({
   const [resolution, setResolution] = useState("1920x1080");
   const [fps, setFps] = useState(30);
   const [rtspUrl, setRtspUrl] = useState("");
-  const { models } = useModels();
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
-  const [modelPickerOpen, setModelPickerOpen] = useState(false);
-  const [autoStart, setAutoStart] = useState(true);
-  const [startBusy, setStartBusy] = useState(false);
-  const [startErr, setStartErr] = useState<string | null>(null);
+  const inferenceBackend = inferenceBackendForWorkspace(workspaceId);
+  const { models, loading: modelsLoading, error: modelsError } = useWorkspaceModels(workspaceId);
 
   const closeModal = () => {
     onClose();
@@ -68,10 +64,6 @@ export function AddCameraModal({
     setFps(30);
     setRtspUrl("");
     setSelectedModelId(null);
-    setModelPickerOpen(false);
-    setAutoStart(true);
-    setStartBusy(false);
-    setStartErr(null);
   }, [open]);
 
   const canSubmit = useMemo(() => {
@@ -80,19 +72,15 @@ export function AddCameraModal({
     if (!selectedType) return false;
     if (!cameraName.trim()) return false;
     if (selectedType === "rtsp" && !rtspUrl.trim()) return false;
-    if (autoStart && !selectedModelId) return false;
-    if (startBusy) return false;
     return true;
-  }, [atLimit, autoStart, cameraName, modalStep, rtspUrl, selectedModelId, selectedType, startBusy]);
-
-  const shouldShowModelPicker = autoStart && (modelPickerOpen || Boolean(selectedModelId));
+  }, [atLimit, cameraName, modalStep, rtspUrl, selectedType]);
 
   const createCamera = () => {
     if (!selectedType) return null;
     const rtsp = selectedType === "rtsp" ? rtspUrl.trim() : undefined;
     const dev = selectedType === "usb" ? "usb:0" : selectedType === "csi" ? "csi:0" : undefined;
     const fp = getCameraFingerprint({ type: selectedType, rtspUrl: rtsp, device: dev });
-    const m = selectedModelId ? models.find((x) => x.id === selectedModelId) : undefined;
+    const picked = selectedModelId ? models.find((m) => m.id === selectedModelId) : null;
     const cam: CameraConfig = {
       id: fp ? getOrCreateStableCameraId(`${workspaceId}::${fp}`) : String(Date.now()),
       name: cameraName.trim(),
@@ -101,65 +89,25 @@ export function AddCameraModal({
       resolution,
       fps,
       detectionWorkspace: workspaceId,
+      inferenceBackend,
       rtspUrl: rtsp,
       device: dev,
       cpuUsage: 0,
       npuUsage: 0,
-      model: m?.name,
-      inferenceModelId: m?.id,
+      ...(picked
+        ? { inferenceModelId: picked.id, model: picked.name }
+        : {}),
     };
     return cam;
   };
 
-  const startInferenceForCamera = async (cam: CameraConfig) => {
-    const inputType = cam.type === "rtsp" ? "rtsp" : "webcam";
-    const inputValue =
-      inputType === "rtsp" ? cam.rtspUrl?.trim() : (cam.device ?? (cam.type === "csi" ? "csi:0" : "usb:0"));
-    if (!inputValue) throw new Error("Camera input missing (RTSP URL / device)");
-    if (!cam.model) throw new Error("Select a model first");
-
-    const res = await fetch("/universal/api/inference/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        modelName: cam.model,
-        inputType,
-        inputValue,
-        objThresh: 0.25,
-        nmsThresh: 0.45,
-        logLevel: 0,
-        jpegQuality: 60,
-      }),
-    });
-    if (!res.ok) throw new Error(`Inference start failed (${res.status})`);
-    const data = (await res.json()) as { sessionId?: string; error?: string };
-    if (!data.sessionId) throw new Error(data.error || "Inference start missing sessionId");
-    onUpdateCamera(cam.id, {
-      inferenceSessionId: data.sessionId,
-      inferenceModelId: cam.inferenceModelId,
-      inferenceStartedAt: Date.now(),
-      model: cam.model,
-    });
-  };
-
   const submitAdd = () => {
+    if (!canSubmit) return;
     if (atLimit) return;
     const cam = createCamera();
     if (!cam) return;
-    setStartErr(null);
-    onAddCamera(cam, { openLive: false });
-    if (!autoStart) {
-      closeModal();
-      return;
-    }
-    setStartBusy(true);
-    void startInferenceForCamera(cam)
-      .then(() => closeModal())
-      .catch((e) => {
-        const msg = e instanceof Error ? e.message : "Failed to start processing";
-        setStartErr(msg);
-      })
-      .finally(() => setStartBusy(false));
+    onAddCamera(cam, { openLive: true });
+    closeModal();
   };
 
   if (!open) return null;
@@ -189,9 +137,31 @@ export function AddCameraModal({
       </div>
     ) : null;
 
+  const modelPickerSection = (
+    <div className="space-y-2">
+      {modelsLoading ? (
+        <p className="text-xs text-muted-foreground">Loading models from asnn-dashboard/models…</p>
+      ) : null}
+      {modelsError ? (
+        <p className="text-xs text-destructive">Could not load models: {modelsError}</p>
+      ) : null}
+      {!modelsLoading && !modelsError && models.length === 0 ? (
+        <p className="text-xs text-destructive">
+          No models found. Add a folder with .nb and .so under asnn-dashboard/models.
+        </p>
+      ) : null}
+      {models.length > 0 ? (
+        <ModelSelector compact selected={selectedModelId} onSelect={setSelectedModelId} models={models} />
+      ) : null}
+      {!selectedModelId && models.length > 0 ? (
+        <p className="text-xs text-muted-foreground">Optional: pick a model now, or choose one in Live View after adding.</p>
+      ) : null}
+    </div>
+  );
+
   return createPortal(
     <div className="fixed inset-0 z-50 grid animate-fade-in place-items-center bg-background/80 p-4 backdrop-blur-sm">
-      <div className="glass relative max-h-[calc(100vh-2rem)] w-full max-w-lg animate-scale-in overflow-hidden rounded-2xl">
+      <div className="glass relative max-h-[calc(100vh-2rem)] w-full max-w-2xl animate-scale-in overflow-hidden rounded-2xl">
         <button
           type="button"
           onClick={closeModal}
@@ -249,11 +219,6 @@ export function AddCameraModal({
                 <div className="rounded-xl border border-success/20 bg-success/10 p-4">
                   <p className="text-sm font-medium text-success">✓ Device detected: USB Camera 0</p>
                 </div>
-                {startErr && (
-                  <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-xs text-destructive">
-                    {startErr}
-                  </div>
-                )}
                 <div>
                   <label className="mb-2 block text-sm font-medium text-secondary-foreground">Camera Name</label>
                   <input
@@ -290,32 +255,7 @@ export function AddCameraModal({
                     </select>
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <label className="flex items-center gap-2 text-sm font-medium">
-                    <input type="checkbox" checked={autoStart} onChange={(e) => setAutoStart(e.target.checked)} />
-                    Auto-start AI processing (recommended)
-                  </label>
-                  {autoStart ? (
-                    <div className="text-xs text-muted-foreground">
-                      Select a model now. Events will start recording automatically when detections happen.
-                    </div>
-                  ) : (
-                    <div className="text-xs text-muted-foreground">You can start AI processing later from Live View.</div>
-                  )}
-                </div>
-                {autoStart ? (
-                  shouldShowModelPicker ? (
-                    <ModelSelector selected={selectedModelId} onSelect={setSelectedModelId} models={models} />
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setModelPickerOpen(true)}
-                      className="w-full rounded-lg border border-border bg-background px-4 py-3 text-sm font-medium text-foreground transition-colors hover:bg-muted"
-                    >
-                      Select AI Model
-                    </button>
-                  )
-                ) : null}
+                {modelPickerSection}
                 <button
                   type="button"
                   onClick={submitAdd}
@@ -326,7 +266,7 @@ export function AddCameraModal({
                       : "cursor-not-allowed bg-muted text-muted-foreground"
                   }`}
                 >
-                  {autoStart ? (startBusy ? "Starting AI Processing…" : "Add Camera & Start AI") : "Add Camera"}
+                  Add Camera
                 </button>
               </div>
             </>
@@ -339,11 +279,6 @@ export function AddCameraModal({
               <p className="mb-2 text-sm font-semibold text-primary">{workspaceTitle}</p>
               <h2 className="mb-6 text-2xl font-bold">RTSP Camera Setup</h2>
               <div className="space-y-4">
-                {startErr && (
-                  <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-xs text-destructive">
-                    {startErr}
-                  </div>
-                )}
                 <div>
                   <label className="mb-2 block text-sm font-medium text-secondary-foreground">Camera Name</label>
                   <input
@@ -392,36 +327,12 @@ export function AddCameraModal({
                 </div>
                 <button
                   type="button"
-                  className="w-full rounded-lg border border-border py-3 text-sm font-medium text-secondary-foreground transition-colors hover:bg-muted"
+                  disabled={!rtspUrl.trim()}
+                  className="w-full rounded-lg border border-border py-3 text-sm font-medium text-secondary-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Test Stream Connection
                 </button>
-                <div className="space-y-2">
-                  <label className="flex items-center gap-2 text-sm font-medium">
-                    <input type="checkbox" checked={autoStart} onChange={(e) => setAutoStart(e.target.checked)} />
-                    Auto-start AI processing (recommended)
-                  </label>
-                  {autoStart ? (
-                    <div className="text-xs text-muted-foreground">
-                      Select a model now. Events will start recording automatically when detections happen.
-                    </div>
-                  ) : (
-                    <div className="text-xs text-muted-foreground">You can start AI processing later from Live View.</div>
-                  )}
-                </div>
-                {autoStart ? (
-                  shouldShowModelPicker ? (
-                    <ModelSelector selected={selectedModelId} onSelect={setSelectedModelId} models={models} />
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setModelPickerOpen(true)}
-                      className="w-full rounded-lg border border-border bg-background px-4 py-3 text-sm font-medium text-foreground transition-colors hover:bg-muted"
-                    >
-                      Select AI Model
-                    </button>
-                  )
-                ) : null}
+                {modelPickerSection}
                 <button
                   type="button"
                   onClick={submitAdd}
@@ -432,7 +343,7 @@ export function AddCameraModal({
                       : "cursor-not-allowed bg-muted text-muted-foreground"
                   }`}
                 >
-                  {autoStart ? (startBusy ? "Starting AI Processing…" : "Add Camera & Start AI") : "Add Camera"}
+                  Add Camera
                 </button>
               </div>
             </>
@@ -448,11 +359,6 @@ export function AddCameraModal({
                 <div className="rounded-xl border border-primary/20 bg-primary/10 p-4">
                   <p className="text-sm font-medium text-primary">🔍 Scanning CSI bus...</p>
                 </div>
-                {startErr && (
-                  <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-xs text-destructive">
-                    {startErr}
-                  </div>
-                )}
                 <div>
                   <label className="mb-2 block text-sm font-medium text-secondary-foreground">Camera Name</label>
                   <input
@@ -489,32 +395,7 @@ export function AddCameraModal({
                     </select>
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <label className="flex items-center gap-2 text-sm font-medium">
-                    <input type="checkbox" checked={autoStart} onChange={(e) => setAutoStart(e.target.checked)} />
-                    Auto-start AI processing (recommended)
-                  </label>
-                  {autoStart ? (
-                    <div className="text-xs text-muted-foreground">
-                      Select a model now. Events will start recording automatically when detections happen.
-                    </div>
-                  ) : (
-                    <div className="text-xs text-muted-foreground">You can start AI processing later from Live View.</div>
-                  )}
-                </div>
-                {autoStart ? (
-                  shouldShowModelPicker ? (
-                    <ModelSelector selected={selectedModelId} onSelect={setSelectedModelId} models={models} />
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setModelPickerOpen(true)}
-                      className="w-full rounded-lg border border-border bg-background px-4 py-3 text-sm font-medium text-foreground transition-colors hover:bg-muted"
-                    >
-                      Select AI Model
-                    </button>
-                  )
-                ) : null}
+                {modelPickerSection}
                 <button
                   type="button"
                   onClick={submitAdd}
@@ -525,7 +406,7 @@ export function AddCameraModal({
                       : "cursor-not-allowed bg-muted text-muted-foreground"
                   }`}
                 >
-                  {autoStart ? (startBusy ? "Starting AI Processing…" : "Add Camera & Start AI") : "Add Camera"}
+                  Add Camera
                 </button>
               </div>
             </>

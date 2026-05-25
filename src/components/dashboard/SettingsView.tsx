@@ -10,6 +10,8 @@ import {
 } from "@/services/deviceProfile";
 import { fetchDeviceRegistrations, deviceProfileFromRegistrationRow, type ByEmail, type RegistrationRow, type FetchRegistrationsErr } from "@/services/deviceRegistrations";
 import LanAccessPanel from "@/components/dashboard/LanAccessPanel";
+import { PageHeader } from "@/components/layout/PageHeader";
+import { DASHBOARD_VIEW_META } from "@/lib/dashboardViewMeta";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,7 +23,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import LanAccessPanel from "@/components/dashboard/LanAccessPanel";
 
 function formatDt(value: string | Date | null | undefined): string {
   if (value == null) return "—";
@@ -109,6 +110,10 @@ const SettingsView = ({
       } else if (result.migrationNeeded && typeof result.hint === "string" && result.hint.trim()) {
         setRegBanner(result.hint.trim());
       }
+    } catch (e) {
+      setRegError(e instanceof Error ? e.message : "Failed to load settings");
+      setDevices([]);
+      setByEmail([]);
     } finally {
       setRegLoading(false);
     }
@@ -118,12 +123,21 @@ const SettingsView = ({
     void loadRegistrations();
   }, [loadRegistrations]);
 
+  const meta = DASHBOARD_VIEW_META.settings;
+
   return (
     <div className="space-y-6 animate-fade-in">
-      <div>
-        <h1 className="text-3xl font-bold mb-1">Settings</h1>
-        <p className="text-muted-foreground">Device configuration and integrations</p>
-      </div>
+      <PageHeader
+        title={meta?.title ?? "Settings"}
+        description={meta?.description ?? "Device configuration and integrations"}
+      />
+
+      {regError ? (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {regError}
+        </div>
+      ) : null}
+      {regLoading ? <p className="text-sm text-muted-foreground">Loading account data…</p> : null}
 
       <LanAccessPanel />
 

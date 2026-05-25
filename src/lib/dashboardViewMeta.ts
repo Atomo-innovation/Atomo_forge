@@ -33,7 +33,7 @@ export const DASHBOARD_VIEW_META: Partial<
   },
   models: {
     title: "AI models",
-    description: "Available ONNX models and inference configuration.",
+    description: "ASNN models from asnn-dashboard and on-device inference.",
   },
   settings: {
     title: "Settings",

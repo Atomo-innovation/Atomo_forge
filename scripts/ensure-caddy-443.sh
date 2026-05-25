@@ -12,8 +12,36 @@ port443_listening() {
   ss -tln 2>/dev/null | grep -qE ':443\b'
 }
 
+port80_listening() {
+  ss -tln 2>/dev/null | grep -qE ':80\b'
+}
+
+is_board() {
+  [[ "${FORGE_BOARD:-}" == "1" ]] || [[ -f "$ROOT/.forge-board" ]]
+}
+
+sync_caddyfile_n() {
+  local from="$CADDYFILE"
+  if is_board && [[ -f "$ROOT/Caddyfile.board" ]]; then
+    from="$ROOT/Caddyfile.board"
+  fi
+  [[ -f "$from" ]] || return 1
+  sudo -n cp "$from" /etc/caddy/Caddyfile 2>/dev/null \
+    && sudo -n systemctl reload caddy 2>/dev/null
+}
+
 if [[ "${FORGE_SKIP_CADDY:-}" == "1" ]]; then
   log 'FORGE_SKIP_CADDY=1 — use https://electron.local:8443'
+  exit 0
+fi
+
+if is_board; then
+  if port80_listening || port443_listening; then
+    sync_caddyfile_n || true
+    log 'Board proxy ready → http://electron.local (https://electron.local optional)'
+    exit 0
+  fi
+  log 'Board: Caddy not listening. Run once: npm run board:setup'
   exit 0
 fi
 

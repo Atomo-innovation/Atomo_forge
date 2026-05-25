@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Camera, Square, ImageIcon, Circle, Play, Pause, Zap, PencilLine } from "lucide-react";
 import type { CameraConfig } from "@/pages/Dashboard";
-import { useModels } from "@/hooks/useModels";
+import { useWorkspaceModels } from "@/hooks/useWorkspaceModels";
 import { Button } from "@/components/ui/button";
 import ModelSelector from "./ModelSelector";
 import LiveStats from "./LiveStats";
 import { RenameCameraDialog } from "@/components/dashboard/RenameCameraDialog";
+import { createInferenceEventSink } from "@/services/inferenceEventPipeline";
+import { inferenceApiBase, inferenceBackendForCamera } from "@/lib/inferenceBackend";
+import { sessionsApiForCamera } from "@/services/inferenceSessionReconcile";
 import { subscribeUniversalSession } from "@/services/universalSessionWs";
 
 interface Props {
@@ -18,7 +21,9 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
   const [processing, setProcessing] = useState(false);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
-  const { models } = useModels();
+  const workspaceId = camera?.detectionWorkspace ?? "cameras";
+  const inferenceBackend = inferenceBackendForCamera(camera);
+  const { models } = useWorkspaceModels(workspaceId);
   const [runError, setRunError] = useState<string | null>(null);
   const [runStatus, setRunStatus] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -31,6 +36,9 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
   const pendingFrameRef = useRef<{ jpeg: string | null; dets: Detection[] } | null>(null);
   const rafRef = useRef<number | null>(null);
   const lastRenderAtRef = useRef(0);
+  const eventSinkRef = useRef<ReturnType<typeof createInferenceEventSink> | null>(null);
+  const lastInferenceLogRef = useRef<string | null>(null);
+  const autoStartAttemptedRef = useRef(false);
 
   type Detection = { class_id?: number; class_name?: string; score?: number; box: [number, number, number, number] };
 
@@ -153,7 +161,6 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
     setRunStatus(null);
     onUpdateCamera(camera.id, {
       inferenceSessionId: undefined,
-      inferenceModelId: undefined,
       inferenceStartedAt: undefined,
     });
   };
@@ -244,8 +251,20 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
     }
   };
 
+  const stopExistingInferenceSession = async (sid: string | undefined, backend = inferenceBackend) => {
+    if (!sid) return;
+    try {
+      await fetch(`${inferenceApiBase(backend)}/api/inference/stop/${encodeURIComponent(sid)}`, {
+        method: "POST",
+      });
+    } catch {
+      // ignore
+    }
+  };
+
   const connectWsAttach = (sid: string) => {
     stopWs();
+    eventSinkRef.current = camera ? createInferenceEventSink(camera, sid) : null;
     setRunStatus("connecting");
     pendingFrameRef.current = { jpeg: null, dets: [] };
     lastRenderAtRef.current = 0;
@@ -257,7 +276,17 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
       sid,
       {
         onStatus: ({ status }) => {
-          if (status) setRunStatus(status);
+          if (!status) return;
+          setRunStatus(status);
+          if (status === "stopped" || status.startsWith("stopped")) {
+            setProcessing(false);
+          } else if (
+            status === "running" ||
+            status.startsWith("attached") ||
+            status.startsWith("ws:open")
+          ) {
+            setProcessing(true);
+          }
         },
         onError: (err) => {
           setRunError(err);
@@ -271,45 +300,68 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
           // when the V4L2 device is busy or missing). Without this the UI just
           // sits silently on "connecting…" and the user sees the camera LED
           // blink once and nothing happens.
+          if (msg?.type === "status" && msg.status === "stopped") {
+            const code = typeof msg.exitCode === "number" ? msg.exitCode : null;
+            setProcessing(false);
+            const detail = lastInferenceLogRef.current?.trim();
+            setRunError(
+              code != null
+                ? detail
+                  ? `AI process exited (code ${code}): ${detail}`
+                  : `AI process exited (code ${code}). Close other apps using the camera and ensure asnn-dashboard/models/<name>/ has .nb and .so files.`
+                : detail || "AI process stopped. Select a model or click Start AI Processing to try again.",
+            );
+            return;
+          }
           if (msg?.type === "log") {
             const level = String(msg.level || "").toLowerCase();
             const text = typeof msg.message === "string" ? msg.message : "";
-            if (text && (level === "err" || level === "error")) {
+            if (text && /simulation mode/i.test(text)) {
+              setRunError("Fake detection mode is disabled. Install detect.py and model .nb/.so on the device.");
+              setProcessing(false);
+              return;
+            }
+            if (text && (level === "err" || level === "error" || level === "stderr")) {
+              lastInferenceLogRef.current = text;
               setRunError(text);
               setProcessing(false);
             } else if (text && level === "warn") {
-              setRunStatus(text);
+              if (/asnn not found/i.test(text)) {
+                setRunError(
+                  "ASNN runtime not found — install the NPU stack on the board or use a model with valid .nb/.so files.",
+                );
+              } else {
+                setRunStatus(text);
+              }
             }
             return;
           }
           if (msg?.type !== "inference") return;
+          if (msg.simulated === true) {
+            setRunError("Simulation stream is not used. Stop and start processing again with a real model.");
+            return;
+          }
           const jpeg = typeof msg.jpeg === "string" ? msg.jpeg : null;
           const dets = Array.isArray(msg.detections) ? (msg.detections as Detection[]) : [];
+          if (jpeg) eventSinkRef.current?.ingestInferenceFrame(jpeg, dets, { simulated: false });
           pendingFrameRef.current = { jpeg, dets };
           scheduleRender();
         },
       },
-      // We already start inference via REST when creating a session; only attach here.
-      { lingerMs: 15000, autoStart: false },
+      { lingerMs: 15000, autoStart: true, backend: inferenceBackend },
     );
   };
 
-  const startProcessing = async () => {
+  const startProcessing = async (modelIdOverride?: string) => {
     if (!camera) return;
-    // If this camera already has a running session, just attach to it.
-    if (camera.inferenceSessionId) {
-      setRunError(null);
-      setSessionId(camera.inferenceSessionId);
-      setProcessing(true);
-      connectWsAttach(camera.inferenceSessionId);
-      return;
-    }
-    const model = selectedModel ? models.find((m) => m.id === selectedModel) : null;
+    const modelId = modelIdOverride ?? selectedModel;
+    const model = modelId ? models.find((m) => m.id === modelId) : null;
     if (!model) {
-      setRunError("Select a model first");
+      setRunError("Select an AI model to start detection");
       setModelPickerOpen(true);
       return;
     }
+    if (modelIdOverride) setSelectedModel(modelIdOverride);
 
     setRunError(null);
     setRunStatus(null);
@@ -331,10 +383,19 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
       // and you see the camera LED blink and die.
       if (inputType === "webcam") {
         stopWebcam();
+        await waitMs(1000);
+      }
+
+      if (camera.inferenceSessionId) {
+        await stopExistingInferenceSession(camera.inferenceSessionId);
+        onUpdateCamera(camera.id, {
+          inferenceSessionId: undefined,
+          inferenceStartedAt: undefined,
+        });
         await waitMs(300);
       }
 
-      const res = await fetch("/universal/api/inference/start", {
+      const res = await fetch(`${inferenceApiBase(inferenceBackend)}/api/inference/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -348,13 +409,19 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
           jpegQuality: 60,
         }),
       });
-      if (!res.ok) throw new Error(`Inference start failed (${res.status})`);
-
-      const data = (await res.json()) as { sessionId?: string; error?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        sessionId?: string;
+        error?: string;
+        hint?: string;
+      };
+      if (!res.ok) {
+        const hint = typeof data.hint === "string" ? data.hint : "";
+        throw new Error(data.error ? `${data.error}${hint ? ` ${hint}` : ""}` : `Inference start failed (${res.status})`);
+      }
       if (!data.sessionId) throw new Error(data.error || "Inference start missing sessionId");
       setSessionId(data.sessionId);
-      connectWsAttach(data.sessionId);
       setProcessing(true);
+      connectWsAttach(data.sessionId);
       onUpdateCamera(camera.id, {
         model: model.name,
         inferenceSessionId: data.sessionId,
@@ -379,24 +446,37 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
     if (camera?.id) {
       onUpdateCamera(camera.id, {
         inferenceSessionId: undefined,
-        inferenceModelId: undefined,
         inferenceStartedAt: undefined,
       });
     }
 
     if (!sid) return;
     try {
-      await fetch(`/universal/api/inference/stop/${encodeURIComponent(sid)}`, { method: "POST" });
+      await fetch(`${inferenceApiBase(inferenceBackend)}/api/inference/stop/${encodeURIComponent(sid)}`, {
+        method: "POST",
+      });
     } catch {
       // ignore
     }
   };
 
-  useEffect(() => {
-    setSelectedModel(camera?.inferenceModelId ?? null);
+  const handleModelSelect = (modelId: string) => {
     setModelPickerOpen(false);
+    lastInferenceLogRef.current = null;
+    if (camera && (camera.type === "usb" || camera.type === "csi")) {
+      stopWebcam();
+    }
+    void startProcessing(modelId);
+  };
+
+  useEffect(() => {
+    const saved = camera?.inferenceModelId ?? null;
+    setSelectedModel(saved);
+    setModelPickerOpen(!saved && !camera?.inferenceSessionId);
     setRunError(null);
     setRunStatus(null);
+    lastInferenceLogRef.current = null;
+    autoStartAttemptedRef.current = false;
     setSessionId(camera?.inferenceSessionId ?? null);
     setProcessing(Boolean(camera?.inferenceSessionId));
     setRenameOpen(false);
@@ -411,26 +491,56 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [camera?.id]);
 
-  const selectedModelName =
-    selectedModel ? models.find((m) => m.id === selectedModel)?.name ?? "Selected model" : null;
+  const selectedModelName = selectedModel
+    ? models.find((m) => m.id === selectedModel)?.name ?? null
+    : null;
+
+  // After add-camera with a pre-selected model, start detection once models are loaded.
+  useEffect(() => {
+    if (!camera?.inferenceModelId || camera.inferenceSessionId || processing) return;
+    if (autoStartAttemptedRef.current) return;
+    const model = models.find((m) => m.id === camera.inferenceModelId);
+    if (!model) return;
+    autoStartAttemptedRef.current = true;
+    void startProcessing(camera.inferenceModelId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [camera?.id, camera?.inferenceModelId, camera?.inferenceSessionId, models, processing]);
 
   useEffect(() => {
     const sid = camera?.inferenceSessionId;
     if (!sid || !camera?.id) return;
 
     let cancelled = false;
-    void fetch("/universal/api/inference/sessions")
+    void fetch(sessionsApiForCamera(camera))
       .then(async (r) => {
         if (!r.ok || cancelled) return;
-        const data = (await r.json()) as { sessions?: Array<{ id: string }> };
+        const data = (await r.json()) as {
+          sessions?: Array<{ id: string; simulated?: boolean; running?: boolean; status?: string }>;
+        };
         const sessions = Array.isArray(data.sessions) ? data.sessions : [];
         if (cancelled) return;
-        if (sessions.some((s) => s?.id === sid)) {
+        const match = sessions.find((s) => s?.id === sid);
+        if (!match) {
+          // auth-server restarted or session ended — drop stale id, no error banner
+          clearStaleInferenceSession();
+          return;
+        }
+        const status = String(match.status || "").toLowerCase();
+        const canResume =
+          !match.simulated &&
+          status !== "error" &&
+          status !== "stopped" &&
+          // "ready" = waiting for WebSocket attach (running is false until then)
+          (match.running === true || status === "ready" || status === "running" || status === "pending");
+        if (canResume) {
+          setRunError(null);
+          setProcessing(true);
+          setSessionId(sid);
           connectWsAttach(sid);
           return;
         }
-        setRunError("Previous AI session expired — showing camera preview. Start processing again when ready.");
         clearStaleInferenceSession();
+        setRunError("Previous AI session ended. Click Start AI Processing to run again.");
       })
       .catch(() => {
         if (!cancelled) connectWsAttach(sid);
@@ -445,6 +555,8 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
   useEffect(() => {
     if (!camera) return;
     if (processing) return;
+    // Skip browser preview when a model is chosen — backend will open the device.
+    if (camera.inferenceModelId) return;
     if (camera.type !== "usb" && camera.type !== "csi") return;
 
     let cancelled = false;
@@ -536,7 +648,7 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
                   <Camera className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
                   <div className="text-sm font-semibold">RTSP preview</div>
                   <div className="text-xs text-muted-foreground mt-1">
-                    RTSP can’t be played directly in the browser. Click <span className="font-semibold">Start AI Processing</span> to view frames via Universal.
+                    RTSP can’t be played directly in the browser. Select an AI model below to start the detection stream.
                   </div>
                 </div>
               )}
@@ -547,12 +659,12 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
           <div className="flex items-center gap-3">
             {!processing ? (
               <button
-                onClick={startProcessing}
-                disabled={Boolean(camera?.inferenceSessionId)}
-                className={`flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium glow-primary-sm transition-all ${
-                  camera?.inferenceSessionId
-                    ? "bg-muted text-muted-foreground cursor-not-allowed"
-                    : "bg-gradient-atomic text-primary-foreground hover:scale-[1.02]"
+                onClick={() => void startProcessing()}
+                disabled={!selectedModel}
+                className={`flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium transition-all ${
+                  selectedModel
+                    ? "glow-primary-sm bg-gradient-atomic text-primary-foreground hover:scale-[1.02]"
+                    : "cursor-not-allowed bg-muted text-muted-foreground"
                 }`}
               >
                 <Zap className="w-4 h-4" /> Start AI Processing
@@ -576,16 +688,16 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
             </button>
           </div>
 
-          {/* Model Selection */}
-          {modelPickerOpen ? (
-            <ModelSelector selected={selectedModel} onSelect={setSelectedModel} models={models} />
+          {/* Model Selection — choosing a model starts the detection stream */}
+          {modelPickerOpen || !selectedModel ? (
+            <ModelSelector selected={selectedModel} onSelect={handleModelSelect} models={models} />
           ) : (
             <button
               type="button"
               onClick={() => setModelPickerOpen(true)}
               className="w-full rounded-xl border border-border bg-surface px-4 py-3 text-sm font-medium text-foreground hover:bg-muted transition-colors"
             >
-              {selectedModelName ? `AI Model: ${selectedModelName}` : "Select AI Model"}
+              {selectedModelName ? `AI Model: ${selectedModelName} (change)` : "Select AI Model"}
             </button>
           )}
         </div>

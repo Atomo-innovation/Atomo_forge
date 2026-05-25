@@ -1,0 +1,21 @@
+{
+	# Board: Vite is plain HTTP on :8443. Serve the app on :80 and optional :443 with devcert.
+	auto_https off
+}
+
+(vite_upstream) {
+	reverse_proxy 127.0.0.1:8443
+}
+
+# Primary URL on the board (no TLS errors).
+http://electron.local, http://:80 {
+	bind 0.0.0.0
+	import vite_upstream
+}
+
+# When the browser uses https://electron.local — terminate TLS here (do not redirect-only).
+https://electron.local {
+	bind 0.0.0.0
+	tls /etc/caddy/devcert/cert.pem /etc/caddy/devcert/key.pem
+	import vite_upstream
+}

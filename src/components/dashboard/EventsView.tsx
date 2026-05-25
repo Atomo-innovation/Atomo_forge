@@ -21,14 +21,6 @@ import { useDetectionEvents } from "@/hooks/useDetectionEvents";
 import { loadDetectionEventThumbUrls, revokeThumbUrls } from "@/services/detectionEventThumbs";
 import { useModels } from "@/hooks/useModels";
 import { getCameraSnapshot } from "@/services/cameraRegistry";
-import {
-  EXPORT_FOLDER_LINK_CHANGED,
-  EXPORT_SUBDIR,
-  clearExportRootDirectoryHandle,
-  isFolderDiskExportSupported,
-  loadExportRootDirectoryHandle,
-  pickAndLinkExportFolder,
-} from "@/services/detectionFolderExport";
 import type { CameraConfig } from "@/pages/Dashboard";
 
 const PAGE_SIZE = 8;
@@ -59,24 +51,10 @@ const EventsView = ({ cameras }: { cameras: CameraConfig[] }) => {
   const [camera, setCamera] = useState<string>("all");
   const [dateRange, setDateRange] = useState<string>("");
   const [page, setPage] = useState(1);
-  const [folderLinked, setFolderLinked] = useState(false);
-  const [folderMsg, setFolderMsg] = useState<string | null>(null);
-  const fsSupported = isFolderDiskExportSupported();
   const [layout, setLayout] = useState<"table" | "gallery">("table");
   const [detailId, setDetailId] = useState<string | null>(null);
   const [confirmClearAllOpen, setConfirmClearAllOpen] = useState(false);
   const { models } = useModels();
-
-  const refreshFolderLink = () => {
-    void loadExportRootDirectoryHandle().then((h) => setFolderLinked(Boolean(h)));
-  };
-
-  useEffect(() => {
-    refreshFolderLink();
-    const onLink = () => refreshFolderLink();
-    window.addEventListener(EXPORT_FOLDER_LINK_CHANGED, onLink as EventListener);
-    return () => window.removeEventListener(EXPORT_FOLDER_LINK_CHANGED, onLink as EventListener);
-  }, []);
 
   const rows = useMemo(() => {
     const cameraById = new Map<string, { name: string; model?: string; inferenceModelId?: string }>();
@@ -230,8 +208,7 @@ const EventsView = ({ cameras }: { cameras: CameraConfig[] }) => {
           ) : null}
           <p className="text-sm text-muted-foreground max-w-3xl mt-1">
             All saved detections with crop images live here. Use the <span className="font-medium text-foreground">table</span>{" "}
-            or <span className="font-medium text-foreground">gallery</span> view, then <span className="font-medium text-foreground">click any row or card</span> for full-size image and JSON. If you linked a disk folder, the same data is also under{" "}
-            <code className="text-xs bg-muted px-1 py-0.5 rounded">{EXPORT_SUBDIR}/</code> on disk.
+            or <span className="font-medium text-foreground">gallery</span> view, then <span className="font-medium text-foreground">click any row or card</span> for full-size image and JSON. Use <span className="font-medium text-foreground">Select folder</span> on each detection tab to save images directly on disk.
           </p>
         </div>
         <div className="flex rounded-lg border border-border bg-card p-0.5 shrink-0">
@@ -256,67 +233,12 @@ const EventsView = ({ cameras }: { cameras: CameraConfig[] }) => {
         </div>
       </div>
 
-      {fsSupported ? (
-        <div className="rounded-xl border border-border bg-card p-4 flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
-          <div className="text-sm text-muted-foreground space-y-1">
-            <div className="font-medium text-foreground">Save to disk (JSON + images)</div>
-            <div>
-              Choose any folder you are allowed to write to. Each detection also writes under{" "}
-              <code className="text-xs bg-muted px-1 py-0.5 rounded">{EXPORT_SUBDIR}/</code>: JPEGs in{" "}
-              <code className="text-xs bg-muted px-1 py-0.5 rounded">images/</code> and one append-only{" "}
-              <code className="text-xs bg-muted px-1 py-0.5 rounded">events.jsonl</code> (one JSON object per line).
-            </div>
-            {folderMsg && <div className="text-xs text-destructive">{folderMsg}</div>}
-          </div>
-          <div className="flex flex-wrap gap-2 shrink-0">
-            {folderLinked ? (
-              <>
-                <span className="text-xs font-medium text-success self-center px-2">Folder linked</span>
-                <button
-                  type="button"
-                  className="px-3 py-2 rounded-lg border border-border text-sm hover:bg-muted transition-colors"
-                  onClick={() => {
-                    setFolderMsg(null);
-                    void pickAndLinkExportFolder().then((r) => {
-                      if (!r.ok && r.error) setFolderMsg(r.error);
-                    });
-                  }}
-                >
-                  Change folder…
-                </button>
-                <button
-                  type="button"
-                  className="px-3 py-2 rounded-lg border border-destructive/40 text-destructive text-sm hover:bg-destructive/10 transition-colors"
-                  onClick={() => {
-                    setFolderMsg(null);
-                    void clearExportRootDirectoryHandle();
-                  }}
-                >
-                  Unlink
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity"
-                onClick={() => {
-                  setFolderMsg(null);
-                  void pickAndLinkExportFolder().then((r) => {
-                    if (!r.ok && !r.aborted && r.error) setFolderMsg(r.error);
-                  });
-                }}
-              >
-                Choose export folder…
-              </button>
-            )}
-          </div>
-        </div>
-      ) : (
-        <p className="text-sm text-muted-foreground rounded-lg border border-border bg-card px-4 py-3">
-          To write JSON and images directly into folders on your computer, use a Chromium-based browser (Chrome or
-          Edge). Other browsers keep events only in this app&apos;s storage.
-        </p>
-      )}
+      <p className="text-sm text-muted-foreground rounded-lg border border-border bg-card px-4 py-3">
+        To save detections to disk, open <span className="font-medium text-foreground">Person</span>,{" "}
+        <span className="font-medium text-foreground">Fire &amp; smoke</span>,{" "}
+        <span className="font-medium text-foreground">Face recognition</span>, or{" "}
+        <span className="font-medium text-foreground">Safety</span> and link an export folder on each tab (each tab uses its own folder).
+      </p>
 
       <div className="flex items-center justify-end">
         <AlertDialog open={confirmClearAllOpen} onOpenChange={setConfirmClearAllOpen}>

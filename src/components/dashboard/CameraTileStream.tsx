@@ -23,16 +23,21 @@ export default function CameraTileStream({
       return;
     }
 
-    // Quick sanity check: if Universal doesn't know this session, clear it so UI can restart cleanly.
-    fetch("/universal/api/inference/sessions")
+    // If auth-server restarted, session id may be gone — clear tile state quietly.
+    fetch("/asnn/api/inference/sessions")
       .then(async (r) => {
-        if (!r.ok) throw new Error(String(r.status));
-        const data = (await r.json()) as { sessions?: Array<{ id: string }> };
+        if (!r.ok) return;
+        const data = (await r.json()) as {
+          sessions?: Array<{ id: string; status?: string; simulated?: boolean }>;
+        };
         const sessions = Array.isArray(data.sessions) ? data.sessions : [];
-        const ok = sessions.some((s) => s?.id === sessionId);
-        if (!ok) {
-          setStatus("error");
-          setErrorText("Session expired — start again");
+        const match = sessions.find((s) => s?.id === sessionId);
+        if (!match) {
+          onInvalidSession?.();
+          return;
+        }
+        const st = String(match.status || "").toLowerCase();
+        if (match.simulated || st === "error" || st === "stopped") {
           onInvalidSession?.();
         }
       })

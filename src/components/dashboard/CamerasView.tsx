@@ -4,13 +4,7 @@ import { type CameraConfig, type CameraWorkspaceId } from "@/pages/Dashboard";
 import type { StoredDetectionEvent } from "@/services/detectionEventsStore";
 import { useDetectionEvents } from "@/hooks/useDetectionEvents";
 import { loadDetectionEventThumbUrls, revokeThumbUrls } from "@/services/detectionEventThumbs";
-import {
-  EXPORT_FOLDER_LINK_CHANGED,
-  clearExportRootDirectoryHandle,
-  isFolderDiskExportSupported,
-  loadExportRootDirectoryHandle,
-  pickAndLinkExportFolder,
-} from "@/services/detectionFolderExport";
+import ExportFolderPanel from "@/components/dashboard/ExportFolderPanel";
 import { AddCameraModal } from "@/components/dashboard/AddCameraModal";
 import { RenameCameraDialog } from "@/components/dashboard/RenameCameraDialog";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -48,21 +42,7 @@ const CamerasView = ({
   const [recentThumbUrls, setRecentThumbUrls] = useState<Record<string, string>>({});
   const recentThumbUrlsRef = useRef<Record<string, string>>({});
   const [detectionLayout, setDetectionLayout] = useState<"table" | "gallery">("table");
-  const [folderLinked, setFolderLinked] = useState(false);
-  const [folderMsg, setFolderMsg] = useState<string | null>(null);
   const [detectionPage, setDetectionPage] = useState(1);
-  const fsSupported = isFolderDiskExportSupported();
-
-  const refreshFolderLink = () => {
-    void loadExportRootDirectoryHandle().then((h) => setFolderLinked(Boolean(h)));
-  };
-
-  useEffect(() => {
-    refreshFolderLink();
-    const onLink = () => refreshFolderLink();
-    window.addEventListener(EXPORT_FOLDER_LINK_CHANGED, onLink as EventListener);
-    return () => window.removeEventListener(EXPORT_FOLDER_LINK_CHANGED, onLink as EventListener);
-  }, []);
 
   const detectionByCameraId = useMemo(() => {
     const visible = new Set(cameras.map((c) => c.id));
@@ -270,48 +250,8 @@ const CamerasView = ({
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-5 border-b border-border">
           <h2 className="text-lg font-semibold tracking-tight">Recent detections</h2>
-          <div className="flex items-center gap-2 shrink-0">
-            {/* Export folder button */}
-            {fsSupported && (
-              folderLinked ? (
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium text-success">Folder linked</span>
-                  <button
-                    type="button"
-                    className="px-3 py-1.5 rounded-lg border border-border text-xs hover:bg-muted transition-colors"
-                    onClick={() => {
-                      setFolderMsg(null);
-                      void pickAndLinkExportFolder().then((r) => {
-                        if (!r.ok && r.error) setFolderMsg(r.error);
-                      });
-                    }}
-                  >
-                    Change…
-                  </button>
-                  <button
-                    type="button"
-                    className="px-3 py-1.5 rounded-lg border border-destructive/40 text-destructive text-xs hover:bg-destructive/10 transition-colors"
-                    onClick={() => { setFolderMsg(null); void clearExportRootDirectoryHandle(); }}
-                  >
-                    Unlink
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  className="px-3 py-1.5 rounded-lg bg-gradient-atomic text-primary-foreground text-xs font-medium hover:opacity-90 transition-opacity"
-                  onClick={() => {
-                    setFolderMsg(null);
-                    void pickAndLinkExportFolder().then((r) => {
-                      if (!r.ok && !r.aborted && r.error) setFolderMsg(r.error);
-                    });
-                  }}
-                >
-                  Choose export folder…
-                </button>
-              )
-            )}
-            {/* Table / Gallery toggle */}
+          <div className="flex flex-wrap items-center justify-end gap-2 shrink-0 relative z-10">
+            <ExportFolderPanel workspaceId={workspaceId} workspaceTitle={workspaceTitle} />
             <div className="flex rounded-lg border border-border bg-muted/30 p-0.5">
               <button
                 type="button"
@@ -334,12 +274,6 @@ const CamerasView = ({
             </div>
           </div>
         </div>
-
-        {folderMsg && (
-          <div className="mx-5 mt-3 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2">
-            {folderMsg}
-          </div>
-        )}
 
         {/* Table View */}
         {detectionLayout === "table" ? (
@@ -456,7 +390,6 @@ const CamerasView = ({
         workspaceTitle={workspaceTitle}
         totalCameraCount={totalCameraCount}
         onAddCamera={onAddCamera}
-        onUpdateCamera={onUpdateCamera}
       />
       <RenameCameraDialog
         open={renameTarget !== null}

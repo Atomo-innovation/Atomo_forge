@@ -5,20 +5,28 @@ interface Props {
   selected: string | null;
   onSelect: (id: string) => void;
   models: ModelInfo[];
+  /** Tighter layout for modals and side panels. */
+  compact?: boolean;
 }
 
-const ModelSelector = ({ selected, onSelect, models }: Props) => {
+const ModelSelector = ({ selected, onSelect, models, compact = false }: Props) => {
   return (
-    <div className="bg-surface rounded-xl p-6">
-      <h3 className="text-lg font-semibold mb-4">Select AI Model</h3>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+    <div className={compact ? "rounded-xl border border-border bg-muted/20 p-3" : "bg-surface rounded-xl p-6"}>
+      <h3 className={compact ? "mb-3 text-sm font-semibold" : "text-lg font-semibold mb-4"}>Select AI Model</h3>
+      <div
+        className={
+          compact
+            ? "grid max-h-48 grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2"
+            : "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"
+        }
+      >
         {models.map((model) => {
           const isSelected = selected === model.id;
           return (
             <button
               key={model.id}
               onClick={() => onSelect(model.id)}
-              className={`p-4 rounded-xl border text-left transition-all duration-200 ${
+              className={`${compact ? "p-3 rounded-lg" : "p-4 rounded-xl"} border text-left transition-all duration-200 ${
                 isSelected
                   ? "border-primary bg-primary/10 glow-primary-sm"
                   : "border-border bg-muted/30 hover:border-primary/30 hover:bg-muted/50"

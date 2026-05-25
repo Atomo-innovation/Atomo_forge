@@ -1,13 +1,17 @@
-import { Suspense, lazy, useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { useAuthUsername } from "@/contexts/AuthUsernameContext";
+import { reconcileCameraInferenceSessions } from "@/services/inferenceSessionReconcile";
+import { userScopedLocalStorageKey } from "@/services/userScopedStorage";
 import DashboardSidebar from "@/components/dashboard/DashboardSidebar";
 import DashboardTopBar from "@/components/dashboard/DashboardTopBar";
 import InferenceEventsRecorder from "@/components/dashboard/InferenceEventsRecorder";
 import { clearAllDetectionEvents, listDetectionEvents, updateCameraDisplayNameOnEvents } from "@/services/detectionEventsStore";
-import { cn } from "@/lib/utils";
-import { clearExportRootDirectoryHandle } from "@/services/detectionFolderExport";
+import { clearAllExportRootDirectoryHandles } from "@/services/detectionFolderExport";
+import { clearAllServerExportFolders } from "@/services/detectionExportServer";
 import { clearCameraRegistry } from "@/services/cameraRegistry";
 import { clearCameraIdMap, getCameraFingerprint, getOrCreateStableCameraId } from "@/services/cameraIdentity";
+import { EVENTS_TAB_ENABLED } from "@/lib/featureFlags";
 import { MAX_CAMERAS, MAX_CAMERAS_MESSAGE } from "@/lib/cameraLimits";
 import { toast } from "sonner";
 
@@ -47,6 +51,8 @@ export interface CameraConfig {
   fps: number;
   /** Which detection workspace this camera was added from (Person, Fire & Smoke, …). */
   detectionWorkspace?: CameraWorkspaceId;
+  /** Always asnn-dashboard (legacy cameras may have stored "universal"). */
+  inferenceBackend?: "asnn";
   model?: string;
   inferenceSessionId?: string;
   inferenceModelId?: string;
@@ -58,12 +64,15 @@ export interface CameraConfig {
 }
 
 const CAMERAS_STORAGE_KEY = "atomo-forge:cameras:v1";
+/** Unscoped key from before per-user storage (migrated once into the active user's key). */
+const LEGACY_CAMERAS_STORAGE_KEY = CAMERAS_STORAGE_KEY;
 
 const DashboardHome = lazy(() => import("@/components/dashboard/DashboardHome"));
 const CamerasView = lazy(() => import("@/components/dashboard/CamerasView"));
 const LiveViewScreen = lazy(() => import("@/components/dashboard/LiveViewScreen"));
 const ModelsView = lazy(() => import("@/components/dashboard/ModelsView"));
 const ServicesView = lazy(() => import("@/components/dashboard/ServicesView"));
+/** Screen hidden until `EVENTS_TAB_ENABLED`; module kept for a future release. */
 const EventsView = lazy(() => import("@/components/dashboard/EventsView"));
 const SettingsView = lazy(() => import("@/components/dashboard/SettingsView"));
 const TwinView = lazy(() => import("@/components/dashboard/TwinView"));
@@ -112,6 +121,7 @@ function sanitizeCamera(raw: any): CameraConfig | null {
     resolution: raw.resolution,
     fps: raw.fps,
     detectionWorkspace,
+    inferenceBackend: "asnn",
     cpuUsage: raw.cpuUsage,
     npuUsage: raw.npuUsage,
     model: typeof raw.model === "string" ? raw.model : undefined,
@@ -131,9 +141,36 @@ function camerasForWorkspace(all: CameraConfig[], workspaceId: CameraWorkspaceId
   );
 }
 
+function loadCamerasFromStorage(storageKey: string): CameraConfig[] {
+  try {
+    let raw = localStorage.getItem(storageKey);
+    if (!raw && storageKey !== LEGACY_CAMERAS_STORAGE_KEY) {
+      const legacy = localStorage.getItem(LEGACY_CAMERAS_STORAGE_KEY);
+      if (legacy) {
+        try {
+          localStorage.setItem(storageKey, legacy);
+          localStorage.removeItem(LEGACY_CAMERAS_STORAGE_KEY);
+        } catch {
+          // ignore quota
+        }
+        raw = legacy;
+      }
+    }
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    const list = parsed.map(sanitizeCamera).filter(Boolean) as CameraConfig[];
+    return list.slice(0, MAX_CAMERAS);
+  } catch {
+    return [];
+  }
+}
+
 const Dashboard = ({ onLogout }: { onLogout: () => void }) => {
   const location = useLocation();
   const navigate = useNavigate();
+  const username = useAuthUsername();
+  const camerasStorageKey = userScopedLocalStorageKey(CAMERAS_STORAGE_KEY, username);
   const [view, setView] = useState<DashboardView>("home");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [selectedCamera, setSelectedCamera] = useState<CameraConfig | null>(null);
@@ -141,23 +178,18 @@ const Dashboard = ({ onLogout }: { onLogout: () => void }) => {
   /** Where Live View should return (Overview vs which Cameras sidebar entry). */
   const [liveViewReturn, setLiveViewReturn] = useState<DashboardView>("home");
 
-  const hydratedCameras = useMemo(() => {
-    try {
-      const raw = localStorage.getItem(CAMERAS_STORAGE_KEY);
-      if (!raw) return [] as CameraConfig[];
-      const parsed = JSON.parse(raw) as unknown;
-      if (!Array.isArray(parsed)) return [] as CameraConfig[];
-      const list = parsed.map(sanitizeCamera).filter(Boolean) as CameraConfig[];
-      return list.slice(0, MAX_CAMERAS);
-    } catch {
-      return [] as CameraConfig[];
-    }
-  }, []);
+  const prevCamerasScopeRef = useRef<string | null>(null);
 
   useEffect(() => {
-    setCameras(hydratedCameras);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    const scopeChanged =
+      prevCamerasScopeRef.current !== null && prevCamerasScopeRef.current !== camerasStorageKey;
+    prevCamerasScopeRef.current = camerasStorageKey;
+    setCameras(loadCamerasFromStorage(camerasStorageKey));
+    if (scopeChanged) {
+      setSelectedCamera(null);
+      setView((v) => (v === "liveview" ? "home" : v));
+    }
+  }, [camerasStorageKey]);
 
   useEffect(() => {
     const st = location.state as { openSettings?: boolean } | undefined;
@@ -168,16 +200,21 @@ const Dashboard = ({ onLogout }: { onLogout: () => void }) => {
 
   useEffect(() => {
     try {
-      localStorage.setItem(CAMERAS_STORAGE_KEY, JSON.stringify(cameras));
+      localStorage.setItem(camerasStorageKey, JSON.stringify(cameras));
     } catch {
       // ignore quota / disabled storage
     }
-  }, [cameras]);
+  }, [cameras, camerasStorageKey]);
 
-  /** Warm events cache so the Events tab opens quickly. */
+  /** Warm events cache when the Events tab is enabled. */
   useEffect(() => {
+    if (!EVENTS_TAB_ENABLED) return;
     void listDetectionEvents().catch(() => null);
-  }, []);
+  }, [username]);
+
+  useEffect(() => {
+    if (!EVENTS_TAB_ENABLED && view === "events") setView("home");
+  }, [view]);
 
   const handleOpenLiveView = (camera: CameraConfig) => {
     setLiveViewReturn(CAMERA_PANEL_VIEWS.includes(view) ? view : "home");
@@ -193,6 +230,17 @@ const Dashboard = ({ onLogout }: { onLogout: () => void }) => {
       if (next) void updateCameraDisplayNameOnEvents(cameraId, next).catch(() => null);
     }
   };
+
+  /** Drop dead session IDs once per login scope (avoid repeated state churn). */
+  const reconciledScopeRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!cameras.length) return;
+    const scope = camerasStorageKey;
+    if (reconciledScopeRef.current === scope) return;
+    reconciledScopeRef.current = scope;
+    void reconcileCameraInferenceSessions(cameras, handleUpdateCamera);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [camerasStorageKey, cameras.length]);
 
   const handleAddCamera = (camera: CameraConfig, opts?: { openLive?: boolean }) => {
     let rejected = false;
@@ -228,18 +276,19 @@ const Dashboard = ({ onLogout }: { onLogout: () => void }) => {
     // Stop any active sessions best-effort.
     void Promise.allSettled(
       sessions.map((sid) =>
-        fetch(`/universal/api/inference/stop/${encodeURIComponent(sid)}`, { method: "POST" }).catch(() => null),
+        fetch(`/asnn/api/inference/stop/${encodeURIComponent(sid)}`, { method: "POST" }).catch(() => null),
       ),
     ).finally(() => {
       try {
-        localStorage.removeItem(CAMERAS_STORAGE_KEY);
+        localStorage.removeItem(camerasStorageKey);
       } catch {
         // ignore
       }
       setSelectedCamera(null);
       setCameras([]);
       void clearAllDetectionEvents();
-      void clearExportRootDirectoryHandle();
+      void clearAllExportRootDirectoryHandles();
+      void clearAllServerExportFolders();
       clearCameraRegistry();
       clearCameraIdMap();
       setView("cameras");
@@ -292,6 +341,19 @@ const Dashboard = ({ onLogout }: { onLogout: () => void }) => {
         return renderSuspended(
           <LiveViewScreen camera={selectedCamera} onBack={() => setView(liveViewReturn)} onUpdateCamera={handleUpdateCamera} />
         );
+      case "events":
+        if (EVENTS_TAB_ENABLED) {
+          return renderSuspended(<EventsView cameras={cameras} />);
+        }
+        return renderSuspended(
+          <DashboardHome
+            cameras={cameras}
+            onAddCamera={handleAddCamera}
+            onUpdateCamera={handleUpdateCamera}
+            onViewCamera={handleOpenLiveView}
+            onOpenSettings={() => setView("settings")}
+          />
+        );
       case "services":
         return renderSuspended(<ServicesView />);
       case "models":
@@ -333,7 +395,10 @@ const Dashboard = ({ onLogout }: { onLogout: () => void }) => {
         onToggle={() => setSidebarOpen(!sidebarOpen)}
       />
       <div className="flex-1 flex flex-col min-h-0">
-        <DashboardTopBar onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
+        <DashboardTopBar
+          onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+          onOpenSettings={() => setView("settings")}
+        />
         <main
           className={
             view === "twin" || view === "models"
@@ -342,24 +407,13 @@ const Dashboard = ({ onLogout }: { onLogout: () => void }) => {
           }
         >
           <div
-            className={cn(
+            className={
               view === "twin" || view === "models"
                 ? "flex h-full min-h-0 flex-col"
-                : "mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6 sm:py-8",
-              view === "events" && "hidden",
-            )}
-            aria-hidden={view === "events"}
+                : "mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6 sm:py-8"
+            }
           >
-            {view !== "events" ? renderView() : null}
-          </div>
-          <div
-            className={cn(
-              "mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6 sm:py-8",
-              view !== "events" && "hidden",
-            )}
-            aria-hidden={view !== "events"}
-          >
-            {renderSuspended(<EventsView cameras={cameras} />)}
+            {renderView()}
           </div>
         </main>
       </div>

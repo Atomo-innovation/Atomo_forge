@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type { ModelInfo } from "@/data/models";
-import { fetchUniversalDashboardModels } from "@/services/universalModelDashboard";
+import { fetchAsnnDashboardModels } from "@/services/asnnModelDashboard";
 
+/** All AI models from asnn-dashboard/models (AI Models tab, cameras, live view). */
 export function useModels() {
   const [remoteModels, setRemoteModels] = useState<ModelInfo[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -12,7 +13,7 @@ export function useModels() {
     setLoading(true);
     setError(null);
 
-    fetchUniversalDashboardModels(controller.signal)
+    fetchAsnnDashboardModels(controller.signal)
       .then((models) => setRemoteModels(models))
       .catch((e: unknown) => {
         const msg = e instanceof Error ? e.message : "Failed to load models";
@@ -28,4 +29,3 @@ export function useModels() {
 
   return { models, loading, error };
 }
-
