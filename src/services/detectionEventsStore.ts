@@ -1,5 +1,6 @@
 import { loadExportRootDirectoryHandle, type ExportWorkspaceId } from "@/services/detectionFolderExport";
 import { exportDetectionEventViaServer, getServerExportPath } from "@/services/detectionExportServer";
+import { persistDetectionEventToDb } from "@/services/detectionEventsDb";
 import { onForgeUserScopeChanged, userScopedDbName } from "@/services/userScopedStorage";
 
 export const DETECTION_EVENTS_CHANGED_EVENT = "atomo-forge:detection-events-changed";
@@ -365,6 +366,7 @@ export async function addDetectionEvent(ev: StoredDetectionEvent): Promise<void>
   });
 
   void exportEventToDisk(ev).catch(() => null);
+  void persistDetectionEventToDb(ev).catch(() => null);
   emitChanged();
 }
 

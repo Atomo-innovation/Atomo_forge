@@ -1,0 +1,27 @@
+---
+description: Keep detection events in atomo_forge only — never merge with meshcentral
+alwaysApply: true
+---
+
+# atomo_forge — separate detection events database
+
+**User requirement:** Detection events DB must stay **separate** from MeshCentral / `meshcentral`.
+
+## Rules (do not break)
+
+1. **Database:** `MYSQL_EVENTS_DATABASE=atomo_forge` only for events + images.
+2. **Never** store detection events in `meshcentral` or MeshCentral tables.
+3. **Never** require MeshCentral login for events API (`/api/detection-events/*`).
+4. **Schema:** `scripts/sql/events/*.sql` only — not `scripts/sql/007_*` (deprecated meshcentral table).
+5. **Table:** `atomo_forge.detection_events` with `forge_account` (session id e.g. `board@local`), `image_jpeg` BLOB.
+6. **Code:** Use `eventsPool` / `detection-events-api.cjs` — not the main `pool` used for legacy auth/devices.
+7. **Migrations:** `npm run migrate:events` applies only `scripts/sql/events/`.
+
+## Not the same as
+
+| `meshcentral` | `atomo_forge` |
+|---------------|---------------|
+| Legacy auth / devices (optional) | Detection events + search + images |
+| `MYSQL_DATABASE` | `MYSQL_EVENTS_DATABASE` |
+
+When adding features for Person / Fire / Face / Safety detections, extend **atomo_forge** only unless the user explicitly asks to change this split.

@@ -5,7 +5,7 @@ export FORGE_CADDY_NO_SUDO=1
 export FORGE_SYNC_CADDYFILE=1
 export FORGE_VITE_PLAIN_HTTP=1
 export VITE_DEV_HOST="${VITE_DEV_HOST:-electron.local}"
-# Board showcase: open dashboard without MeshCentral/MySQL login (npm run board:go).
+# Board: local login (board@local). Detection events use atomo_forge only — not MeshCentral.
 export VITE_FORGE_BOARD_LOCAL_AUTH=1
 export VITE_FORGE_BOARD_LOCAL_USER="${VITE_FORGE_BOARD_LOCAL_USER:-board@local}"
 # zenity folder dialog when auth-server is started from npm run dev

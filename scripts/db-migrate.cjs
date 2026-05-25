@@ -1,84 +1,173 @@
 /**
  * MySQL schema migration runner for atomo-forge-suite.
  *
- *   • Loads .env (so MYSQL_* vars are available).
- *   • Reads every *.sql file in scripts/sql/ (sorted by filename).
- *   • Executes each file as a multi-statement script against MYSQL_DATABASE.
- *
- * The files are written with `CREATE TABLE IF NOT EXISTS` etc. so they're
- * idempotent — safe to run on every boot and from `npm run migrate`.
- *
- * Used by:
- *   • auth-server.cjs at startup (via runMigrations()), so a fresh dev box
- *     just works without remembering to migrate.
- *   • `npm run migrate` as a manual fallback.
+ *   • scripts/sql/*.sql        → MYSQL_DATABASE (meshcentral — login, devices)
+ *   • scripts/sql/events/*.sql → MYSQL_EVENTS_DATABASE (atomo_forge — detections + images)
  */
 require('../load-env.cjs');
 const fs = require('fs');
 const path = require('path');
 const mysql = require('mysql2/promise');
+const { eventsMysqlConfig } = require('./events-mysql-config.cjs');
 
 const SQL_DIR = path.join(__dirname, 'sql');
+const EVENTS_SQL_DIR = path.join(SQL_DIR, 'events');
 
-async function runMigrations({ log = console.log, warn = console.warn } = {}) {
-  let files;
+function mysqlBaseConfig() {
+  return {
+    host: process.env.MYSQL_HOST || '127.0.0.1',
+    port: parseInt(process.env.MYSQL_PORT || '3306', 10),
+    user: process.env.MYSQL_USER || 'atomo',
+    password: process.env.MYSQL_PASSWORD || 'atomo@1234',
+    multipleStatements: true,
+    connectTimeout: parseInt(process.env.MYSQL_CONNECT_TIMEOUT_MS || '10000', 10),
+  };
+}
+
+function eventsMigrateConfig() {
+  const c = eventsMysqlConfig();
+  return {
+    host: c.host,
+    port: c.port,
+    user: c.user,
+    password: c.password,
+    multipleStatements: true,
+    connectTimeout: c.connectTimeout,
+  };
+}
+
+function listSqlFiles(dir) {
   try {
-    files = fs
-      .readdirSync(SQL_DIR)
+    const files = fs
+      .readdirSync(dir)
       .filter((f) => f.toLowerCase().endsWith('.sql'))
       .sort();
+    return { files };
   } catch (e) {
-    warn(`[migrate] cannot read ${SQL_DIR}: ${e.message}`);
-    return { ok: false, error: e.message, ran: [] };
+    return { error: e.message, files: [] };
   }
-  if (files.length === 0) {
-    log('[migrate] no .sql files in scripts/sql/, nothing to do');
-    return { ok: true, ran: [] };
-  }
+}
 
-  const host = process.env.MYSQL_HOST || '127.0.0.1';
-  const port = parseInt(process.env.MYSQL_PORT || '3306', 10);
-  const user = process.env.MYSQL_USER || 'atomo';
-  const password = process.env.MYSQL_PASSWORD || 'atomo@1234';
-  const database = process.env.MYSQL_DATABASE || 'meshcentral';
+async function applySqlFiles({ database, files, dir, log, warn, connectionConfig }) {
+  if (!files.length) return { ok: true, ran: [], skipped: true };
+
+  const cfg = connectionConfig || mysqlBaseConfig();
+  if (database) cfg.database = database;
 
   let conn;
   try {
-    conn = await mysql.createConnection({
-      host,
-      port,
-      user,
-      password,
-      database,
-      multipleStatements: true,
-      connectTimeout: parseInt(process.env.MYSQL_CONNECT_TIMEOUT_MS || '10000', 10),
-    });
+    conn = await mysql.createConnection(cfg);
   } catch (e) {
-    warn(`[migrate] cannot connect to MySQL at ${host}:${port} (${e.code || e.message}). Skipping migrations.`);
+    warn(
+      `[migrate] cannot connect to MySQL at ${cfg.host}:${cfg.port}` +
+        (database ? ` db=${database}` : '') +
+        ` (${e.code || e.message})`,
+    );
     return { ok: false, error: e.code || e.message, ran: [] };
   }
 
   const ran = [];
   try {
     for (const file of files) {
-      const full = path.join(SQL_DIR, file);
+      const full = path.join(dir, file);
       const sql = fs.readFileSync(full, 'utf8').trim();
       if (!sql) continue;
-      log(`[migrate] applying ${file}`);
+      log(`[migrate] applying ${database ? database + '/' : ''}${file}`);
       await conn.query(sql);
       ran.push(file);
     }
-    log(`[migrate] done — applied ${ran.length} file(s) against ${database}@${host}:${port}`);
     return { ok: true, ran };
   } catch (e) {
-    warn(`[migrate] FAILED on ${ran.length > 0 ? ran[ran.length - 1] : '(first file)'}: ${e.code || e.message}`);
+    warn(`[migrate] FAILED (${database || 'no-db'}): ${e.code || e.message}`);
     return { ok: false, error: e.code || e.message, ran };
   } finally {
-    try { await conn.end(); } catch (_) { /* ignore */ }
+    try {
+      await conn.end();
+    } catch (_) {
+      /* ignore */
+    }
   }
 }
 
-module.exports = { runMigrations };
+async function runMigrations({ log = console.log, warn = console.warn } = {}) {
+  const meshDb = process.env.MYSQL_DATABASE || 'meshcentral';
+  const eventsDb = process.env.MYSQL_EVENTS_DATABASE || 'atomo_forge';
+  const cfg = mysqlBaseConfig();
+
+  const meshList = listSqlFiles(SQL_DIR);
+  if (meshList.error) {
+    warn(`[migrate] cannot read ${SQL_DIR}: ${meshList.error}`);
+  }
+
+  const eventsList = listSqlFiles(EVENTS_SQL_DIR);
+  if (eventsList.error) {
+    warn(`[migrate] cannot read ${EVENTS_SQL_DIR}: ${eventsList.error}`);
+  }
+
+  const meshFiles = meshList.files || [];
+  const eventsFiles = eventsList.files || [];
+
+  let allOk = true;
+  const allRan = [];
+
+  if (meshFiles.length) {
+    const r = await applySqlFiles({
+      database: meshDb,
+      files: meshFiles,
+      dir: SQL_DIR,
+      log,
+      warn,
+    });
+    allRan.push(...r.ran.map((f) => `${meshDb}/${f}`));
+    if (!r.ok) allOk = false;
+  }
+
+  if (eventsFiles.length) {
+    // No default database — script contains CREATE DATABASE + USE atomo_forge
+    const r = await applySqlFiles({
+      database: null,
+      files: eventsFiles,
+      dir: EVENTS_SQL_DIR,
+      log,
+      warn,
+      connectionConfig: eventsMigrateConfig(),
+    });
+    allRan.push(...r.ran.map((f) => `${eventsDb}/${f}`));
+    if (!r.ok) allOk = false;
+  } else {
+    log(`[migrate] no files in ${EVENTS_SQL_DIR}`);
+  }
+
+  if (allOk) {
+    log(
+      `[migrate] done — ${allRan.length} file(s) at ${cfg.host}:${cfg.port}` +
+        ` (mesh=${meshDb}, events=${eventsDb})`,
+    );
+  }
+
+  return { ok: allOk, ran: allRan, meshDatabase: meshDb, eventsDatabase: eventsDb };
+}
+
+async function runEventsMigrations(opts) {
+  const { database: eventsDb, host, port } = eventsMysqlConfig();
+  const list = listSqlFiles(EVENTS_SQL_DIR);
+  if (!list.files || !list.files.length) {
+    return { ok: true, ran: [], eventsDatabase: eventsDb };
+  }
+  const log = (opts && opts.log) || console.log;
+  const warn = (opts && opts.warn) || console.warn;
+  const r = await applySqlFiles({
+    database: null,
+    files: list.files,
+    dir: EVENTS_SQL_DIR,
+    log,
+    warn,
+    connectionConfig: eventsMigrateConfig(),
+  });
+  return { ...r, eventsDatabase: eventsDb, host, port };
+}
+
+module.exports = { runMigrations, runEventsMigrations };
 
 if (require.main === module) {
   runMigrations().then((r) => {

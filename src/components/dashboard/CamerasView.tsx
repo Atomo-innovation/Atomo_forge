@@ -1,9 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Play, Trash2, LayoutGrid, List, PencilLine } from "lucide-react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
+import { Plus, Play, Trash2, LayoutGrid, List, PencilLine, Search } from "lucide-react";
 import { type CameraConfig, type CameraWorkspaceId } from "@/pages/Dashboard";
-import type { StoredDetectionEvent } from "@/services/detectionEventsStore";
-import { useDetectionEvents } from "@/hooks/useDetectionEvents";
+import { useAuthUsername } from "@/contexts/AuthUsernameContext";
+import { useWorkspaceDetectionSearch } from "@/hooks/useWorkspaceDetectionSearch";
 import { loadDetectionEventThumbUrls, revokeThumbUrls } from "@/services/detectionEventThumbs";
+import { detectionEventImageUrl } from "@/services/detectionEventsDb";
+import type { StoredDetectionEvent } from "@/services/detectionEventsStore";
+import { getDetectionEventById } from "@/services/detectionEventsStore";
+
+const EventDetailDialog = lazy(() => import("@/components/dashboard/EventDetailDialog"));
 import ExportFolderPanel from "@/components/dashboard/ExportFolderPanel";
 import { AddCameraModal } from "@/components/dashboard/AddCameraModal";
 import { RenameCameraDialog } from "@/components/dashboard/RenameCameraDialog";
@@ -38,7 +43,19 @@ const CamerasView = ({
 }: Props) => {
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [renameTarget, setRenameTarget] = useState<CameraConfig | null>(null);
-  const { events } = useDetectionEvents(1000);
+  const forgeAccount = useAuthUsername();
+  const cameraIds = useMemo(() => cameras.map((c) => c.id), [cameras]);
+  const {
+    searchQuery,
+    setSearchQuery,
+    recentEvents,
+    loading: detectionsLoading,
+    isSearchActive,
+    dbAvailable,
+    useServerImages,
+  } = useWorkspaceDetectionSearch(workspaceId, cameraIds);
+  const [detailEvent, setDetailEvent] = useState<StoredDetectionEvent | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
   const [recentThumbUrls, setRecentThumbUrls] = useState<Record<string, string>>({});
   const recentThumbUrlsRef = useRef<Record<string, string>>({});
   const [detectionLayout, setDetectionLayout] = useState<"table" | "gallery">("table");
@@ -47,7 +64,7 @@ const CamerasView = ({
   const detectionByCameraId = useMemo(() => {
     const visible = new Set(cameras.map((c) => c.id));
     const m = new Map<string, { count: number; lastAt?: number }>();
-    for (const e of events) {
+    for (const e of recentEvents) {
       if (!visible.has(e.cameraId)) continue;
       const cur = m.get(e.cameraId) ?? { count: 0, lastAt: undefined };
       cur.count += 1;
@@ -55,7 +72,7 @@ const CamerasView = ({
       m.set(e.cameraId, cur);
     }
     return m;
-  }, [cameras, events]);
+  }, [cameras, recentEvents]);
 
   const formatTime = (ts?: number) => {
     if (!ts) return "—";
@@ -80,16 +97,11 @@ const CamerasView = ({
     }
   };
 
-  const recentEvents = useMemo(() => {
-    if (!cameras.length) return [] as StoredDetectionEvent[];
-    const visible = new Set(cameras.map((c) => c.id));
-    return events
-      .filter((e) => visible.has(e.cameraId))
-      .sort((a, b) => b.createdAt - a.createdAt)
-      ;
-  }, [cameras, events]);
-
   const DETECTION_PAGE_SIZE = 8;
+
+  useEffect(() => {
+    setDetectionPage(1);
+  }, [searchQuery]);
   const detectionTotalPages = Math.max(1, Math.ceil(recentEvents.length / DETECTION_PAGE_SIZE));
   const detectionPageSlice = useMemo(() => {
     const p = Math.min(detectionPage, detectionTotalPages);
@@ -103,7 +115,10 @@ const CamerasView = ({
 
   useEffect(() => {
     let cancelled = false;
-    void loadDetectionEventThumbUrls(detectionThumbIds).then((loaded) => {
+    void loadDetectionEventThumbUrls(detectionThumbIds, {
+      forgeAccount,
+      preferServer: useServerImages,
+    }).then((loaded) => {
       if (cancelled) {
         revokeThumbUrls(loaded);
         return;
@@ -123,7 +138,22 @@ const CamerasView = ({
     return () => {
       cancelled = true;
     };
-  }, [detectionThumbIds]);
+  }, [detectionThumbIds, forgeAccount, useServerImages]);
+
+  const openEventDetail = (e: StoredDetectionEvent) => {
+    setDetailEvent(e);
+    setDetailOpen(true);
+    void getDetectionEventById(e.id).then((full) => {
+      if (full) setDetailEvent(full);
+    });
+  };
+
+  const detailImageUrl =
+    detailEvent && forgeAccount
+      ? recentThumbUrls[detailEvent.id] ?? detectionEventImageUrl(detailEvent.id, forgeAccount)
+      : detailEvent
+        ? recentThumbUrls[detailEvent.id]
+        : undefined;
 
   useEffect(() => {
     return () => {
@@ -248,9 +278,22 @@ const CamerasView = ({
       {/* Recent detections — full Events-style view */}
       <section className="rounded-2xl border border-border bg-card overflow-hidden">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-5 border-b border-border">
-          <h2 className="text-lg font-semibold tracking-tight">Recent detections</h2>
-          <div className="flex flex-wrap items-center justify-end gap-2 shrink-0 relative z-10">
+        <div className="flex flex-col gap-3 p-5 border-b border-border">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold tracking-tight">Recent detections</h2>
+              {dbAvailable ? (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Saving to MySQL <span className="font-medium">atomo_forge</span> (metadata + images) · search from database
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Local browser storage · run <span className="font-medium">migrate:events</span> on{" "}
+                  <span className="font-medium">atomo_forge</span> (no MeshCentral)
+                </p>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-2 shrink-0 relative z-10">
             <ExportFolderPanel workspaceId={workspaceId} workspaceTitle={workspaceTitle} />
             <div className="flex rounded-lg border border-border bg-muted/30 p-0.5">
               <button
@@ -273,6 +316,21 @@ const CamerasView = ({
               </button>
             </div>
           </div>
+          </div>
+          <div className="relative w-full max-w-xl">
+            <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search time, event, camera, model…"
+              className="w-full pl-9 pr-3 py-2.5 rounded-lg bg-background border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+              aria-label={`Search ${workspaceTitle} detections`}
+            />
+            {detectionsLoading && isSearchActive ? (
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">Searching…</span>
+            ) : null}
+          </div>
         </div>
 
         {/* Table View */}
@@ -289,7 +347,11 @@ const CamerasView = ({
               </thead>
               <tbody>
                 {detectionPageSlice.map((e) => (
-                  <tr key={e.id} className="border-t border-border bg-card hover:bg-muted/60 transition-colors">
+                  <tr
+                    key={e.id}
+                    className="border-t border-border bg-card hover:bg-muted/60 transition-colors cursor-pointer"
+                    onClick={() => openEventDetail(e)}
+                  >
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3 min-w-[180px]">
                         <div className="w-10 h-10 rounded bg-muted border border-border overflow-hidden shrink-0">
@@ -310,7 +372,9 @@ const CamerasView = ({
                 {recentEvents.length === 0 && (
                   <tr>
                     <td colSpan={4} className="px-4 py-10 text-center text-sm text-muted-foreground bg-card">
-                      No detections yet. Start inference on a camera to see detections here.
+                      {isSearchActive
+                        ? "No detections match your search. Try another time, camera name, or event label."
+                        : "No detections yet. Start inference on a camera to see detections here."}
                     </td>
                   </tr>
                 )}
@@ -322,14 +386,22 @@ const CamerasView = ({
           <div className="p-4">
             {recentEvents.length === 0 ? (
               <div className="py-10 text-center text-sm text-muted-foreground">
-                No detections yet. Start inference on a camera to see detections here.
+                {isSearchActive
+                  ? "No detections match your search."
+                  : "No detections yet. Start inference on a camera to see detections here."}
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
                 {detectionPageSlice.map((e) => (
                   <div
                     key={e.id}
-                    className="rounded-xl border border-border bg-card overflow-hidden hover:border-primary/50 hover:shadow-md transition-all"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => openEventDetail(e)}
+                    onKeyDown={(ev) => {
+                      if (ev.key === "Enter" || ev.key === " ") openEventDetail(e);
+                    }}
+                    className="rounded-xl border border-border bg-card overflow-hidden hover:border-primary/50 hover:shadow-md transition-all cursor-pointer"
                   >
                     <div className="aspect-square bg-muted">
                       {recentThumbUrls[e.id] ? (
@@ -391,6 +463,19 @@ const CamerasView = ({
         totalCameraCount={totalCameraCount}
         onAddCamera={onAddCamera}
       />
+      <Suspense fallback={null}>
+        <EventDetailDialog
+          open={detailOpen}
+          onOpenChange={setDetailOpen}
+          event={detailEvent}
+          imageUrl={detailImageUrl}
+          onDelete={() => {
+            setDetailOpen(false);
+            setDetailEvent(null);
+          }}
+        />
+      </Suspense>
+
       <RenameCameraDialog
         open={renameTarget !== null}
         onOpenChange={(open) => {
