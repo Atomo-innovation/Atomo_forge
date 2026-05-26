@@ -5,7 +5,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CADDYFILE="${ROOT}/Caddyfile"
-DEV_URL="${FORGE_DEV_URL:-https://electron.local:8443}"
+DEV_URL="${FORGE_DEV_URL:-http://electron.local:8443}"
 
 log() { printf '[caddy] %s\n' "$*"; }
 
@@ -63,16 +63,40 @@ fi
 
 warn_hosts
 
+caddyfile_stale_502() {
+  [[ -f /etc/caddy/Caddyfile ]] || return 1
+  grep -qE 'reverse_proxy[[:space:]]+https://127\.0\.0\.1:8443' /etc/caddy/Caddyfile 2>/dev/null
+}
+
+sync_caddyfile() {
+  local src="$1"
+  [[ -f "$src" ]] || return 1
+  if run_sudo_n cp "$src" /etc/caddy/Caddyfile && run_sudo_n systemctl restart caddy; then
+    return 0
+  fi
+  return 1
+}
+
 if is_board; then
   BOARD_CADDY="$ROOT/Caddyfile.board"
   SYNC_FROM="$CADDYFILE"
   [[ -f "$BOARD_CADDY" ]] && SYNC_FROM="$BOARD_CADDY"
   if [[ -f "$SYNC_FROM" ]] && [[ "${FORGE_SYNC_CADDYFILE:-1}" == "1" ]]; then
-    run_sudo_n cp "$SYNC_FROM" /etc/caddy/Caddyfile || true
-    run_sudo_n systemctl reload caddy || true
+    if ! sync_caddyfile "$SYNC_FROM"; then
+      if caddyfile_stale_502; then
+        log 'ERROR: /etc/caddy/Caddyfile proxies HTTPS→:8443 but Vite is HTTP → browser shows 502'
+        log 'Fix (once): npm run board:caddy-sync'
+      else
+        log 'WARN: could not sync Caddyfile (passwordless sudo failed). Run: npm run board:caddy-sync'
+      fi
+    fi
   fi
   if port80_listening || port443_listening; then
-    log 'Board: Caddy ready → http://electron.local'
+    if caddyfile_stale_502; then
+      log 'WARN: Caddy is up but Caddyfile is stale — npm run board:caddy-sync'
+    else
+      log 'Board: Caddy ready → http://electron.local'
+    fi
     keep_alive
   fi
   log 'Board: Caddy not on :80/:443 — run: npm run board:setup'
@@ -80,9 +104,14 @@ if is_board; then
   keep_alive
 fi
 
+if port80_listening; then
+  log 'Port 80 ready → http://electron.local'
+  keep_alive
+fi
+
 if port443_listening; then
-  log 'Port 443 ready → https://electron.local'
-  log "Vite: ${DEV_URL}"
+  log 'Port 443 ready (optional https://electron.local)'
+  log "Prefer: http://electron.local  |  Vite: ${DEV_URL}"
   keep_alive
 fi
 
@@ -93,8 +122,12 @@ if ! command -v caddy >/dev/null 2>&1; then
 fi
 
 if [[ -f "$CADDYFILE" ]] && [[ "${FORGE_SYNC_CADDYFILE:-1}" == "1" ]]; then
-  if ! run_sudo_n cp "$CADDYFILE" /etc/caddy/Caddyfile; then
-    log 'Could not sync Caddyfile (sudo -n). Run: sudo cp Caddyfile /etc/caddy/Caddyfile'
+  if ! sync_caddyfile "$CADDYFILE"; then
+    if caddyfile_stale_502; then
+      log 'ERROR: stale Caddyfile (HTTPS→:8443) causes 502 — run: npm run caddy:sync'
+    else
+      log 'Could not sync Caddyfile (sudo -n). Run: npm run caddy:sync'
+    fi
   fi
 fi
 

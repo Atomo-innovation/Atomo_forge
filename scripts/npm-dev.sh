@@ -5,6 +5,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# Dev: Vite on :8443 is plain HTTP; Caddy on :80 proxies to it (HTTPS upstream → 502).
+export FORGE_VITE_PLAIN_HTTP="${FORGE_VITE_PLAIN_HTTP:-1}"
+
 if bash "$ROOT/scripts/detect-forge-board.sh"; then
   # shellcheck source=scripts/forge-board-env.sh
   source "$ROOT/scripts/forge-board-env.sh"
@@ -17,6 +20,9 @@ if bash "$ROOT/scripts/detect-forge-board.sh"; then
     printf '[forge] WARN: electron.local resolves to Docker, not Wi‑Fi. Fix: npm run board:fix-hosts\n'
     printf '[forge] Or use: http://%s/\n' "$LAN_HINT"
   fi
+else
+  printf '[forge] Laptop — this PC: http://electron.local:8443/dashboard\n'
+  printf '[forge] Share on Wi‑Fi (phones/other PCs): npm run lan:share  (http://electron.local, not https)\n'
 fi
 
 NO_TUNNEL=0
@@ -39,18 +45,7 @@ if [[ -n "${FORGE_LAN_IP:-}" ]]; then
   export FORGE_LAN_HTTP_URL="$VITE_LAN_HTTP_URL"
 fi
 bash scripts/print-lan-access.sh
-
-if [[ "${FORGE_BOARD:-}" == "1" ]]; then
-  if ss -tln 2>/dev/null | grep -qE ':80\b'; then
-    export FORGE_OPEN_NO_PORT=1
-    export FORGE_DEV_OPEN_URL="${FORGE_DEV_OPEN_URL:-http://electron.local/}"
-  elif [[ -n "${FORGE_LAN_IP:-}" ]]; then
-    export FORGE_DEV_OPEN_URL="${FORGE_DEV_OPEN_URL:-https://${FORGE_LAN_IP}:8443/}"
-  fi
-elif ss -tln 2>/dev/null | grep -qE ':443\b'; then
-  export FORGE_OPEN_NO_PORT=1
-  export FORGE_DEV_OPEN_URL="https://electron.local/"
-fi
+bash "$ROOT/scripts/ensure-electron-local-dev.sh"
 
 CONCURRENTLY=(npx concurrently -k)
 

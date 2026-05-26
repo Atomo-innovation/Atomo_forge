@@ -21,7 +21,7 @@ export const DASHBOARD_VIEW_META: Partial<
   },
   cameras3: {
     title: "Face recognition",
-    description: "Manage cameras and face recognition inference.",
+    description: "Cameras and detections with person name plus Known or Unknown from inference.",
   },
   cameras4: {
     title: "Safety",

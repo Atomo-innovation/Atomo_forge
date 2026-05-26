@@ -4,7 +4,8 @@
 }
 
 (vite_upstream) {
-	reverse_proxy 127.0.0.1:8443
+	# Must be http:// — plain scheme; otherwise Caddy may speak TLS to Vite → 502.
+	reverse_proxy http://127.0.0.1:8443
 }
 
 # Primary URL on the board (no TLS errors).

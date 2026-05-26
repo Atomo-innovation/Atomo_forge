@@ -50,8 +50,13 @@ if ! grep -qE '(^|[[:space:]])electron\.local([[:space:]]|$)' /etc/hosts 2>/dev/
   log '  sudo sh -c '\''echo "127.0.0.1 electron.local" >> /etc/hosts'\'''
 fi
 
+if port80_listening; then
+  log 'HTTP proxy ready → http://electron.local  (use http:// not https://)'
+  exit 0
+fi
+
 if port443_listening; then
-  log 'HTTPS proxy ready → https://electron.local'
+  log 'HTTPS on :443 — prefer http://electron.local unless you need TLS'
   exit 0
 fi
 
@@ -67,24 +72,28 @@ if [[ ! -f "$CADDYFILE" ]]; then
 fi
 
 if [[ -t 0 ]] && [[ -t 1 ]]; then
-  log 'Port 443 is required for https://electron.local (no port in URL).'
+  log 'Optional: Caddy on :80 for http://electron.local (no :8443 in URL).'
   log 'Enter your sudo password once to start Caddy…'
+  SYNC_FROM="$CADDYFILE"
+  if is_board && [[ -f "$ROOT/Caddyfile.board" ]]; then
+    SYNC_FROM="$ROOT/Caddyfile.board"
+  fi
   if sudo -v \
-    && sudo cp "$CADDYFILE" /etc/caddy/Caddyfile \
+    && sudo cp "$SYNC_FROM" /etc/caddy/Caddyfile \
     && sudo systemctl enable caddy 2>/dev/null \
-    && sudo systemctl restart caddy; then
-    sleep 1
-    if port443_listening; then
-      log 'OK → open https://electron.local'
+    && timeout 15 sudo systemctl restart caddy; then
+    sleep 2
+    if port80_listening; then
+      log 'OK → open http://electron.local/dashboard  (npm run dev must be running)'
       exit 0
     fi
-    log 'Caddy started but :443 is not listening. Check: journalctl -u caddy -n 30'
+    log 'Caddy started but :80 is not listening. Check: journalctl -u caddy -n 30'
     exit 0
   fi
-  log 'sudo failed — open https://electron.local:8443 or run: npm run caddy:start'
+  log 'sudo failed — open http://electron.local:8443/dashboard  (no Caddy needed)'
   exit 0
 fi
 
 log 'No TTY for sudo. Run once: npm run caddy:start'
-log 'Or open: https://electron.local:8443'
+log 'Or open: http://electron.local:8443/dashboard'
 exit 0

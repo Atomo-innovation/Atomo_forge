@@ -12,9 +12,9 @@ warn() { printf 'WARN: %s\n' "$*"; }
 echo "=== electron.local diagnostics ==="
 
 if [[ -f "$ROOT/.forge-board" ]]; then
-  ok "Board mode (.forge-board) — use npm run board:dev"
+  ok "Board mode (.forge-board)"
 else
-  warn "Board not configured — run once: npm run board:setup"
+  ok "Laptop dev — use npm run dev; board commands (board:*) are for the edge device only"
 fi
 
 if grep -qE '(^|[[:space:]])electron\.local([[:space:]]|$)' /etc/hosts 2>/dev/null; then
@@ -80,7 +80,10 @@ if [[ "$HTTP_CODE" == "200" ]] && [[ "$HTTPS_CODE" != "200" ]] && [[ "$HTTPS_COD
   warn "http works but https fails ($HTTPS_CODE) — run: npm run board:caddy-sync"
   warn "Browser: type http://electron.local explicitly"
 fi
-echo "502 = Vite not ready or wrong Caddyfile (need Caddyfile.board on the board)."
+if grep -qE 'reverse_proxy[[:space:]]+https://127\.0\.0\.1:8443' /etc/caddy/Caddyfile 2>/dev/null; then
+  fail "Caddyfile proxies HTTPS→:8443 but Vite is HTTP — run: npm run board:caddy-sync"
+fi
+echo "502 = Vite not ready or stale /etc/caddy/Caddyfile (npm run board:caddy-sync)."
 echo "ERR_SSL_PROTOCOL_ERROR = browser used https:// but Caddy HTTPS was misconfigured."
 if ! getent hosts electron.local >/dev/null 2>&1; then
   fail "electron.local does not resolve — run: npm run board:fix-hosts"
@@ -88,4 +91,8 @@ else
   ok "electron.local resolves: $(getent hosts electron.local | awk '{print $1, $2}')"
 fi
 echo "Open: http://electron.local after VITE ready."
-echo "Fix: npm run board:fix-hosts && npm run board:caddy-sync && npm run board:go"
+if [[ -f "$ROOT/.forge-board" ]]; then
+  echo "Fix: npm run board:fix-hosts && npm run board:caddy-sync && npm run board:go"
+else
+  echo "Fix: npm run caddy:sync  (or skip Caddy: http://electron.local:8443/dashboard)"
+fi

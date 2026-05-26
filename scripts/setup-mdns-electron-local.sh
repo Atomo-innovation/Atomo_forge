@@ -7,6 +7,8 @@ if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
 fi
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+IS_BOARD=0
+[[ -f "$ROOT/.forge-board" ]] || [[ "${FORGE_BOARD:-}" == "1" ]] && IS_BOARD=1
 
 if command -v apt-get >/dev/null 2>&1; then
   apt-get update -y
@@ -15,8 +17,9 @@ fi
 
 LAN_IP="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{print $7; exit}' || true)"
 
-# Remove bad electron.local lines (127.0.0.1 or stale), then pin LAN IP for this device.
-if [[ -f /etc/hosts ]]; then
+# Board: pin electron.local → LAN IP in /etc/hosts (no 127.0.0.1).
+# Laptop: leave /etc/hosts alone — keep 127.0.0.1 for you; other devices use mDNS only.
+if [[ "$IS_BOARD" -eq 1 ]] && [[ -f /etc/hosts ]]; then
   tmp="$(mktemp)"
   grep -vE '(^|[[:space:]])electron\.local([[:space:]]|$)' /etc/hosts >"$tmp" || true
   if [[ -n "$LAN_IP" ]]; then
@@ -24,14 +27,20 @@ if [[ -f /etc/hosts ]]; then
   fi
   cat "$tmp" >/etc/hosts
   rm -f "$tmp"
+else
+  echo "[lan] Laptop: /etc/hosts unchanged (keep 127.0.0.1 electron.local for this PC if you want)."
 fi
 
+# mDNS name electron.local requires hostname "electron" on the LAN.
 hostnamectl set-hostname electron
 
-# Avahi: only publish on Wi‑Fi/Ethernet (not docker0).
+# Avahi: publish electron.local on Wi‑Fi only (not docker0).
 mkdir -p /etc/avahi/avahi-daemon.d
+if [[ -f "$ROOT/scripts/forge-avahi-host.conf" ]]; then
+  cp "$ROOT/scripts/forge-avahi-host.conf" /etc/avahi/avahi-daemon.d/forge-host.conf
+fi
 if [[ -f "$ROOT/scripts/forge-avahi-wlan-only.conf" ]]; then
-  cp "$ROOT/scripts/forge-avahi-wlan-only.conf" /etc/avahi/avahi-daemon.d/forge-board.conf
+  cp "$ROOT/scripts/forge-avahi-wlan-only.conf" /etc/avahi/avahi-daemon.d/forge-wlan-only.conf
 fi
 
 systemctl enable --now avahi-daemon || true
@@ -39,10 +48,29 @@ systemctl restart avahi-daemon 2>/dev/null || true
 sleep 1
 
 echo ""
-echo "mDNS + /etc/hosts configured for electron.local"
+echo "mDNS configured (PCs / some iPhones):"
+echo "  http://electron.local/dashboard"
 if [[ -n "$LAN_IP" ]]; then
-  echo "  This device: http://electron.local  →  $LAN_IP (via /etc/hosts)"
+  echo ""
+  echo "Phones (Android): use IP — .local usually does not work in Chrome:"
+  echo "  http://${LAN_IP}/dashboard"
+  echo ""
+  echo "To force electron.local on phone: npm run lan:dns"
+  echo "  (phone Wi‑Fi DNS → ${LAN_IP})"
 fi
-echo "  Other Wi‑Fi devices: http://electron.local  (mDNS on wlan only)"
 echo ""
-echo "Then run: npm run board:go   (or npm run dev)"
+echo "Details: npm run lan:mdns-check"
+if [[ "$IS_BOARD" -eq 1 ]]; then
+  echo ""
+  echo "Then: npm run board:go"
+else
+  echo ""
+  echo "Then on this laptop:"
+  echo "  npm run caddy:start && npm run caddy:sync"
+  echo "  npm run dev"
+  echo "See: npm run lan:share"
+fi
+if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q 'Status: active'; then
+  echo ""
+  echo "Firewall: sudo ufw allow 80/tcp"
+fi

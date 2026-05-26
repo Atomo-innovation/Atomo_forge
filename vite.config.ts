@@ -293,7 +293,7 @@ export default defineConfig(({ mode }) => {
         ? false
         : env.FORGE_DEV_OPEN_URL ||
           (env.FORGE_OPEN_NO_PORT === "1"
-            ? `${boardPlainHttp ? "http" : "https"}://${devHost}/`
+            ? `http://${devHost}/dashboard`
             : `${boardPlainHttp ? "http" : "https"}://${devHost}:${devPort}/`),
     // Use the browser URL for HMR (443 via Caddy, :80 LAN, or :8443 direct). Forcing
     // host=electron.local + clientPort=8443 breaks WS when the page is opened on :443

@@ -1,3 +1,4 @@
+import type { FaceDetectionMeta } from "@/lib/faceRecognition";
 import { loadExportRootDirectoryHandle, type ExportWorkspaceId } from "@/services/detectionFolderExport";
 import { exportDetectionEventViaServer, getServerExportPath } from "@/services/detectionExportServer";
 import { persistDetectionEventToDb } from "@/services/detectionEventsDb";
@@ -20,6 +21,8 @@ export type StoredDetectionEvent = {
   label: string;
   score?: number;
   box?: [number, number, number, number];
+  /** Face workspace (cameras3): person name + known | unknown from detection. */
+  face?: FaceDetectionMeta;
   /** Present when loaded with crop; omitted in fast metadata-only lists. */
   cropImage?: Blob;
   [k: string]: any;

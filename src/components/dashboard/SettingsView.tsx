@@ -9,7 +9,6 @@ import {
   setDeviceProfile,
 } from "@/services/deviceProfile";
 import { fetchDeviceRegistrations, deviceProfileFromRegistrationRow, type ByEmail, type RegistrationRow, type FetchRegistrationsErr } from "@/services/deviceRegistrations";
-import LanAccessPanel from "@/components/dashboard/LanAccessPanel";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DASHBOARD_VIEW_META } from "@/lib/dashboardViewMeta";
 import {
@@ -138,8 +137,6 @@ const SettingsView = ({
         </div>
       ) : null}
       {regLoading ? <p className="text-sm text-muted-foreground">Loading account data…</p> : null}
-
-      <LanAccessPanel />
 
       {/* Device registrations UI removed per user request; underlying logic kept. */}
 

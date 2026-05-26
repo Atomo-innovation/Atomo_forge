@@ -1,36 +1,15 @@
 {
-	# Keep http://electron.local on :80 (browsers that type http:// won't be forced to :443).
-	auto_https disable_redirects
+	# Dev Vite is plain HTTP on :8443 (FORGE_VITE_PLAIN_HTTP=1). Keep http:// on :80.
+	auto_https off
 }
 
 (vite_upstream) {
-	reverse_proxy https://127.0.0.1:8443 {
-		transport http {
-			tls
-			tls_insecure_skip_verify
-			tls_server_name localhost
-			versions 1.1
-		}
-		# Vite devcert is issued for localhost, not electron.local.
-		header_up Host localhost
-	}
+	reverse_proxy http://127.0.0.1:8443
 }
 
-electron.local {
-	# `.local` domains can't get public ACME certs.
-	# This makes Caddy generate a local CA + cert (you can trust it via `caddy trust`).
-	tls internal
-	import vite_upstream
-}
-
-# Same Wi‑Fi: other devices type http://electron.local (needs mDNS: npm run lan:setup)
-http://electron.local {
-	bind 0.0.0.0
-	import vite_upstream
-}
-
-# Fallback when mDNS is unavailable: http://<LAN-IP>
-:80 {
+# LAN: bind all interfaces so other devices can open http://electron.local (port 80).
+# This laptop: optional 127.0.0.1 electron.local in /etc/hosts; phones use mDNS (npm run lan:setup).
+http://electron.local, http://:80 {
 	bind 0.0.0.0
 	import vite_upstream
 }

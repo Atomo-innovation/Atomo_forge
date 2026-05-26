@@ -27,7 +27,7 @@ else
   echo "[forge:db] Opening SSH tunnel → EC2 MySQL on 127.0.0.1:${PORT} ..."
   if [[ ! -f "${KEY}" ]]; then
     echo "[forge:db] WARN: SSH key missing (${KEY}) — event DBs unavailable. Use board mode or set FORGE_EC2_SSH_KEY." >&2
-    return 0
+    exit 0
   fi
   if ! ssh -f -N \
     -o ServerAliveInterval=30 \
@@ -37,7 +37,7 @@ else
     -i "${KEY}" \
     "${EC2_USER}@${EC2_HOST}" 2>/dev/null; then
     echo "[forge:db] WARN: could not start tunnel — detections use browser storage only." >&2
-    return 0
+    exit 0
   fi
   for _ in $(seq 1 25); do
     port_open && break
@@ -45,7 +45,7 @@ else
   done
   if ! port_open; then
     echo "[forge:db] WARN: tunnel did not open port ${PORT} in time." >&2
-    return 0
+    exit 0
   fi
   echo "[forge:db] Tunnel ready."
 fi

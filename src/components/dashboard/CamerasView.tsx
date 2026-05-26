@@ -10,6 +10,15 @@ import { getDetectionEventById } from "@/services/detectionEventsStore";
 
 const EventDetailDialog = lazy(() => import("@/components/dashboard/EventDetailDialog"));
 import ExportFolderPanel from "@/components/dashboard/ExportFolderPanel";
+import {
+  classificationBadgeLabel,
+  countFaceListFilter,
+  faceDetectionDisplayLabel,
+  faceIdentityBadgeClass,
+  filterEventsByFaceListFilter,
+  FACE_LIST_FILTER_LABEL,
+  type FaceListFilter,
+} from "@/lib/faceRecognition";
 import { AddCameraModal } from "@/components/dashboard/AddCameraModal";
 import { RenameCameraDialog } from "@/components/dashboard/RenameCameraDialog";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -60,6 +69,19 @@ const CamerasView = ({
   const recentThumbUrlsRef = useRef<Record<string, string>>({});
   const [detectionLayout, setDetectionLayout] = useState<"table" | "gallery">("table");
   const [detectionPage, setDetectionPage] = useState(1);
+  const [faceListFilter, setFaceListFilter] = useState<FaceListFilter>("all");
+
+  const isFaceWorkspace = workspaceId === "cameras3";
+
+  const filteredDetectionEvents = useMemo(() => {
+    if (!isFaceWorkspace) return recentEvents;
+    return filterEventsByFaceListFilter(recentEvents, faceListFilter);
+  }, [isFaceWorkspace, recentEvents, faceListFilter]);
+
+  const faceFilterCounts = useMemo(() => {
+    if (!isFaceWorkspace) return null;
+    return countFaceListFilter(recentEvents);
+  }, [isFaceWorkspace, recentEvents]);
 
   const detectionByCameraId = useMemo(() => {
     const visible = new Set(cameras.map((c) => c.id));
@@ -101,13 +123,17 @@ const CamerasView = ({
 
   useEffect(() => {
     setDetectionPage(1);
-  }, [searchQuery]);
-  const detectionTotalPages = Math.max(1, Math.ceil(recentEvents.length / DETECTION_PAGE_SIZE));
+  }, [searchQuery, faceListFilter]);
+
+  const detectionTotalPages = Math.max(
+    1,
+    Math.ceil(filteredDetectionEvents.length / DETECTION_PAGE_SIZE),
+  );
   const detectionPageSlice = useMemo(() => {
     const p = Math.min(detectionPage, detectionTotalPages);
     const start = (p - 1) * DETECTION_PAGE_SIZE;
-    return recentEvents.slice(start, start + DETECTION_PAGE_SIZE);
-  }, [recentEvents, detectionPage, detectionTotalPages]);
+    return filteredDetectionEvents.slice(start, start + DETECTION_PAGE_SIZE);
+  }, [filteredDetectionEvents, detectionPage, detectionTotalPages]);
 
   const detectionSafePage = Math.min(detectionPage, detectionTotalPages);
 
@@ -284,6 +310,13 @@ const CamerasView = ({
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold tracking-tight">Recent detections</h2>
+              {isFaceWorkspace ? (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Each event shows the <span className="font-medium text-foreground">person name</span> from
+                  detection with <span className="font-medium text-success">Known</span> or{" "}
+                  <span className="font-medium text-foreground">Unknown</span>.
+                </p>
+              ) : null}
               {dbAvailable ? (
                 <p className="text-xs text-muted-foreground mt-0.5">
                   Saving to MySQL <span className="font-medium">{eventsDatabaseForWorkspace(workspaceId)}</span> (
@@ -320,6 +353,39 @@ const CamerasView = ({
             </div>
           </div>
           </div>
+          {isFaceWorkspace && faceFilterCounts ? (
+            <div
+              className="flex flex-wrap gap-2"
+              role="tablist"
+              aria-label="Filter by identity"
+            >
+              {(["all", "known", "unknown"] as const).map((key) => (
+                <button
+                  key={key}
+                  type="button"
+                  role="tab"
+                  aria-selected={faceListFilter === key}
+                  onClick={() => setFaceListFilter(key)}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors",
+                    faceListFilter === key
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-background border-border text-muted-foreground hover:text-foreground hover:bg-muted/50",
+                  )}
+                >
+                  {FACE_LIST_FILTER_LABEL[key]}
+                  <span
+                    className={cn(
+                      "min-w-[1.25rem] px-1.5 py-0.5 rounded-full text-[10px] font-semibold tabular-nums",
+                      faceListFilter === key ? "bg-primary-foreground/20" : "bg-muted",
+                    )}
+                  >
+                    {faceFilterCounts[key]}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null}
           <div className="relative w-full max-w-xl">
             <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
@@ -343,6 +409,9 @@ const CamerasView = ({
               <thead className="bg-foreground text-background">
                 <tr>
                   <th className="text-left px-4 py-3 text-xs font-semibold">Event Name</th>
+                  {isFaceWorkspace ? (
+                    <th className="text-left px-4 py-3 text-xs font-semibold">Identity</th>
+                  ) : null}
                   <th className="text-left px-4 py-3 text-xs font-semibold">Details</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold">Camera</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold">Date &amp; Time</th>
@@ -362,22 +431,47 @@ const CamerasView = ({
                             <img src={recentThumbUrls[e.id]} alt={e.label} className="w-full h-full object-cover" />
                           ) : null}
                         </div>
-                        <span className="font-medium text-foreground text-sm">{e.label}</span>
+                        <span className="font-medium text-foreground text-sm">
+                          {isFaceWorkspace ? faceDetectionDisplayLabel(e.face, e.label) : e.label}
+                        </span>
                       </div>
                     </td>
+                    {isFaceWorkspace ? (
+                      <td className="px-4 py-3 text-xs">
+                        {e.face ? (
+                          <span
+                            className={cn(
+                              "inline-flex text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full border",
+                              faceIdentityBadgeClass(e.face.classification),
+                            )}
+                          >
+                            {classificationBadgeLabel(e.face)}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
+                    ) : null}
                     <td className="px-4 py-3 text-xs text-muted-foreground">
                       {typeof e.score === "number" ? `Score ${(e.score * 100).toFixed(1)}%` : "—"}
+                      {isFaceWorkspace && typeof e.face?.matchScore === "number"
+                        ? ` · match ${(e.face.matchScore * 100).toFixed(0)}%`
+                        : null}
                     </td>
                     <td className="px-4 py-3 text-xs text-muted-foreground">{e.cameraName ?? e.cameraId}</td>
                     <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{formatDateTime(e.createdAt)}</td>
                   </tr>
                 ))}
-                {recentEvents.length === 0 && (
+                {filteredDetectionEvents.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="px-4 py-10 text-center text-sm text-muted-foreground bg-card">
+                    <td colSpan={isFaceWorkspace ? 5 : 4} className="px-4 py-10 text-center text-sm text-muted-foreground bg-card">
                       {isSearchActive
                         ? "No detections match your search. Try another time, camera name, or event label."
-                        : "No detections yet. Start inference on a camera to see detections here."}
+                        : isFaceWorkspace && faceListFilter !== "all"
+                          ? `No ${FACE_LIST_FILTER_LABEL[faceListFilter].toLowerCase()} detections in this list.`
+                          : isFaceWorkspace
+                            ? "No face detections yet. Inference will send person name and Known / Unknown here."
+                            : "No detections yet. Start inference on a camera to see detections here."}
                     </td>
                   </tr>
                 )}
@@ -387,11 +481,13 @@ const CamerasView = ({
         ) : (
           /* Gallery View */
           <div className="p-4">
-            {recentEvents.length === 0 ? (
+            {filteredDetectionEvents.length === 0 ? (
               <div className="py-10 text-center text-sm text-muted-foreground">
                 {isSearchActive
                   ? "No detections match your search."
-                  : "No detections yet. Start inference on a camera to see detections here."}
+                  : isFaceWorkspace && faceListFilter !== "all"
+                    ? `No ${FACE_LIST_FILTER_LABEL[faceListFilter].toLowerCase()} detections.`
+                    : "No detections yet. Start inference on a camera to see detections here."}
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -414,7 +510,19 @@ const CamerasView = ({
                       )}
                     </div>
                     <div className="p-3 space-y-1">
-                      <div className="font-semibold text-foreground text-sm truncate">{e.label}</div>
+                      <div className="font-semibold text-foreground text-sm truncate">
+                        {isFaceWorkspace ? faceDetectionDisplayLabel(e.face, e.label) : e.label}
+                      </div>
+                      {isFaceWorkspace && e.face ? (
+                        <span
+                          className={cn(
+                            "inline-block text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full border mt-1",
+                            faceIdentityBadgeClass(e.face.classification),
+                          )}
+                        >
+                          {classificationBadgeLabel(e.face)}
+                        </span>
+                      ) : null}
                       <div className="text-xs text-muted-foreground truncate">{e.cameraName ?? e.cameraId}</div>
                       <div className="text-xs text-muted-foreground">{formatDateTime(e.createdAt)}</div>
                     </div>
@@ -426,11 +534,12 @@ const CamerasView = ({
         )}
 
         {/* Pagination */}
-        {recentEvents.length > 0 && (
+        {filteredDetectionEvents.length > 0 && (
           <div className="p-3 border-t border-border flex items-center justify-between gap-2 bg-card">
             <div className="text-xs text-muted-foreground">
-              {recentEvents.length} event{recentEvents.length === 1 ? "" : "s"}
-              {recentEvents.length > 0 ? ` · page ${detectionSafePage} / ${detectionTotalPages}` : ""}
+              {filteredDetectionEvents.length} event{filteredDetectionEvents.length === 1 ? "" : "s"}
+              {isFaceWorkspace && faceListFilter !== "all" ? ` (${FACE_LIST_FILTER_LABEL[faceListFilter]})` : ""}
+              {filteredDetectionEvents.length > 0 ? ` · page ${detectionSafePage} / ${detectionTotalPages}` : ""}
             </div>
             <div className="flex items-center gap-2">
               <button
