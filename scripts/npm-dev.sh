@@ -26,6 +26,11 @@ for arg in "$@"; do
   esac
 done
 
+# One terminal: tunnel (if needed) + 4 event DB migrations, then concurrently starts everything.
+if [[ "$NO_TUNNEL" -eq 0 ]]; then
+  bash "$ROOT/scripts/ensure-events-mysql.sh" || true
+fi
+
 bash scripts/ensure-caddy-443.sh
 bash scripts/ensure-mdns-electron-local.sh || true
 export FORGE_LAN_IP="$(node scripts/forge-network.cjs 2>/dev/null || ip -4 route get 1.1.1.1 2>/dev/null | awk '{print $7; exit}' || true)"

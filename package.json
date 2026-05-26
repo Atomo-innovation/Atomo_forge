@@ -6,6 +6,8 @@
   "scripts": {
     "postinstall": "node scripts/install-pdeu-digital-twin.cjs",
     "dev": "bash scripts/npm-dev.sh",
+    "start": "npm run dev",
+    "dev:events": "npm run dev",
     "dev:no-tunnel": "bash scripts/npm-dev.sh --no-tunnel",
     "combine:start": "node scripts/start-combine-detector.cjs",
     "mediamtx:start": "node scripts/start-mediamtx.cjs",
@@ -14,6 +16,7 @@
     "migrate:events": "node -e \"require('./scripts/db-migrate.cjs').runEventsMigrations().then(r=>process.exit(r.ok?0:1))\"",
     "setup:events-db": "bash scripts/setup-atomo-forge-db.sh",
     "grant:events-db": "bash scripts/grant-atomo-forge-on-ec2.sh",
+    "grant:events-db:local": "bash scripts/grant-events-mysql-local.sh",
     "twin:install": "node scripts/install-pdeu-digital-twin.cjs",
     "lan:setup": "sudo bash scripts/setup-mdns-electron-local.sh",
     "board:setup": "sudo bash scripts/setup-board-electron-local.sh",

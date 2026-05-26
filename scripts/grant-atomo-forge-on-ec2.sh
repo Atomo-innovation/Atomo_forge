@@ -29,8 +29,28 @@ if [[ ! -f "${KEY}" ]]; then
   exit 1
 fi
 
+echo "[grant] Checking SSH to ${EC2_USER}@${EC2_HOST}:22 ..."
+if ! ssh -i "${KEY}" \
+  -o ConnectTimeout=15 \
+  -o BatchMode=yes \
+  -o StrictHostKeyChecking=accept-new \
+  "${EC2_USER}@${EC2_HOST}" "echo ok" 2>/dev/null; then
+  echo "" >&2
+  echo "[grant] FAILED: Cannot reach EC2 (${EC2_HOST}:22). Connection timed out or refused." >&2
+  echo "" >&2
+  echo "  Fix on AWS / network:" >&2
+  echo "    • EC2 instance running? (not stopped)" >&2
+  echo "    • Public IP changed? Update FORGE_EC2_HOST in .env" >&2
+  echo "    • Security group: inbound TCP 22 from YOUR current public IP" >&2
+  echo "    • Try: nc -vz ${EC2_HOST} 22" >&2
+  echo "" >&2
+  echo "  Or use local MySQL (no EC2): npm run grant:events-db:local" >&2
+  echo "  Dev without DB until grant works: detections stay in browser only." >&2
+  exit 1
+fi
+
 echo "[grant] Creating workspace databases on EC2..."
-ssh -i "${KEY}" -o StrictHostKeyChecking=accept-new "${EC2_USER}@${EC2_HOST}" \
+ssh -i "${KEY}" -o ConnectTimeout=30 -o StrictHostKeyChecking=accept-new "${EC2_USER}@${EC2_HOST}" \
   'sudo mysql' < "${REPO_ROOT}/scripts/sql/grant-atomo-forge.sql"
 
 echo "[grant] Listing atomo MySQL accounts..."
