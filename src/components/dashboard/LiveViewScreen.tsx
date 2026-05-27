@@ -10,6 +10,14 @@ import { createInferenceEventSink } from "@/services/inferenceEventPipeline";
 import { inferenceApiBase, inferenceBackendForCamera } from "@/lib/inferenceBackend";
 import { sessionsApiForCamera } from "@/services/inferenceSessionReconcile";
 import { subscribeUniversalSession } from "@/services/universalSessionWs";
+import {
+  faceSessionIdForCamera,
+  faceWhepUrl,
+  isFaceInferenceSession,
+  registerFaceStreamCamera,
+  unregisterFaceStreamCamera,
+} from "@/services/faceLiveStream";
+import { connectFaceWhep, type FaceWhepConnection } from "@/services/faceWhepPlayer";
 
 interface Props {
   camera: CameraConfig | null;
@@ -22,6 +30,7 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const workspaceId = camera?.detectionWorkspace ?? "cameras";
+  const isFaceWorkspace = workspaceId === "cameras3";
   const inferenceBackend = inferenceBackendForCamera(camera);
   const { models } = useWorkspaceModels(workspaceId);
   const [runError, setRunError] = useState<string | null>(null);
@@ -39,6 +48,7 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
   const eventSinkRef = useRef<ReturnType<typeof createInferenceEventSink> | null>(null);
   const lastInferenceLogRef = useRef<string | null>(null);
   const autoStartAttemptedRef = useRef(false);
+  const whepRef = useRef<FaceWhepConnection | null>(null);
 
   type Detection = { class_id?: number; class_name?: string; score?: number; box: [number, number, number, number] };
 
@@ -153,9 +163,19 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
   // few hundred ms on some boards.
   const waitMs = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+  const stopWhep = () => {
+    try {
+      whepRef.current?.close();
+    } catch {
+      /* ignore */
+    }
+    whepRef.current = null;
+  };
+
   const clearStaleInferenceSession = () => {
     if (!camera?.id) return;
     stopWs();
+    stopWhep();
     setProcessing(false);
     setSessionId(null);
     setRunStatus(null);
@@ -163,6 +183,56 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
       inferenceSessionId: undefined,
       inferenceStartedAt: undefined,
     });
+  };
+
+  const connectFaceWhepStream = async () => {
+    if (!camera?.id) throw new Error("No camera");
+    if (!videoRef.current) throw new Error("Video element not ready");
+    stopWhep();
+    whepRef.current = await connectFaceWhep(faceWhepUrl(camera.id), videoRef.current);
+  };
+
+  const startFaceProcessing = async () => {
+    if (!camera) return;
+    setRunError(null);
+    setRunStatus("Starting face recognition…");
+    try {
+      await registerFaceStreamCamera(camera);
+      await waitMs(2000);
+      await connectFaceWhepStream();
+      const sid = faceSessionIdForCamera(camera.id);
+      setSessionId(sid);
+      setProcessing(true);
+      setRunStatus("Face recognition active — events appear in Face recognition tab");
+      onUpdateCamera(camera.id, {
+        model: "Face recognition",
+        inferenceBackend: "face",
+        inferenceSessionId: sid,
+        inferenceStartedAt: Date.now(),
+        inferenceModelId: undefined,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to start face recognition";
+      setRunError(msg);
+      setProcessing(false);
+      stopWhep();
+      void unregisterFaceStreamCamera(camera.id);
+    }
+  };
+
+  const stopFaceProcessing = async () => {
+    stopWhep();
+    stopWebcam();
+    setProcessing(false);
+    setRunStatus(null);
+    setSessionId(null);
+    if (camera?.id) {
+      onUpdateCamera(camera.id, {
+        inferenceSessionId: undefined,
+        inferenceStartedAt: undefined,
+      });
+      await unregisterFaceStreamCamera(camera.id);
+    }
   };
 
   const startWebcamPreview = async () => {
@@ -354,6 +424,10 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
 
   const startProcessing = async (modelIdOverride?: string) => {
     if (!camera) return;
+    if (isFaceWorkspace) {
+      await startFaceProcessing();
+      return;
+    }
     const modelId = modelIdOverride ?? selectedModel;
     const model = modelId ? models.find((m) => m.id === modelId) : null;
     if (!model) {
@@ -436,6 +510,10 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
   };
 
   const stopProcessing = async () => {
+    if (isFaceWorkspace) {
+      await stopFaceProcessing();
+      return;
+    }
     const sid = sessionId;
     // Ask server to stop immediately over WS.
     // NOTE: if you want "Stop" to truly stop the backend, we still use REST below.
@@ -472,7 +550,7 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
   useEffect(() => {
     const saved = camera?.inferenceModelId ?? null;
     setSelectedModel(saved);
-    setModelPickerOpen(!saved && !camera?.inferenceSessionId);
+    setModelPickerOpen(!isFaceWorkspace && !saved && !camera?.inferenceSessionId);
     setRunError(null);
     setRunStatus(null);
     lastInferenceLogRef.current = null;
@@ -495,8 +573,19 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
     ? models.find((m) => m.id === selectedModel)?.name ?? null
     : null;
 
+  // Face workspace: auto-start stream when opening Live View after add-camera.
+  useEffect(() => {
+    if (!isFaceWorkspace || !camera) return;
+    if (camera.inferenceSessionId || processing) return;
+    if (autoStartAttemptedRef.current) return;
+    autoStartAttemptedRef.current = true;
+    void startFaceProcessing();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [camera?.id, camera?.inferenceSessionId, isFaceWorkspace, processing]);
+
   // After add-camera with a pre-selected model, start detection once models are loaded.
   useEffect(() => {
+    if (isFaceWorkspace) return;
     if (!camera?.inferenceModelId || camera.inferenceSessionId || processing) return;
     if (autoStartAttemptedRef.current) return;
     const model = models.find((m) => m.id === camera.inferenceModelId);
@@ -504,11 +593,43 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
     autoStartAttemptedRef.current = true;
     void startProcessing(camera.inferenceModelId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [camera?.id, camera?.inferenceModelId, camera?.inferenceSessionId, models, processing]);
+  }, [camera?.id, camera?.inferenceModelId, camera?.inferenceSessionId, models, processing, isFaceWorkspace]);
 
   useEffect(() => {
     const sid = camera?.inferenceSessionId;
     if (!sid || !camera?.id) return;
+
+    if (isFaceInferenceSession(sid)) {
+      let cancelled = false;
+      setProcessing(true);
+      setSessionId(sid);
+      const tryResume = async (attempt: number) => {
+        if (cancelled) return;
+        if (!videoRef.current) {
+          if (attempt > 40) {
+            setRunError("Video preview did not mount.");
+            return;
+          }
+          requestAnimationFrame(() => void tryResume(attempt + 1));
+          return;
+        }
+        try {
+          await connectFaceWhepStream();
+          setRunError(null);
+          setRunStatus("Face recognition active");
+        } catch (e) {
+          if (!cancelled) {
+            setRunError(e instanceof Error ? e.message : "Face stream connect failed");
+            clearStaleInferenceSession();
+          }
+        }
+      };
+      void tryResume(0);
+      return () => {
+        cancelled = true;
+        stopWhep();
+      };
+    }
 
     let cancelled = false;
     void fetch(sessionsApiForCamera(camera))
@@ -550,11 +671,12 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [camera?.id, camera?.inferenceSessionId]);
+  }, [camera?.id, camera?.inferenceSessionId, isFaceWorkspace]);
 
   useEffect(() => {
     if (!camera) return;
     if (processing) return;
+    if (isFaceWorkspace) return;
     // Skip browser preview when a model is chosen — backend will open the device.
     if (camera.inferenceModelId) return;
     if (camera.type !== "usb" && camera.type !== "csi") return;
@@ -586,6 +708,7 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
   useEffect(() => {
     return () => {
       stopWs();
+      stopWhep();
       stopWebcam();
       pendingFrameRef.current = null;
       lastRenderAtRef.current = 0;
@@ -639,6 +762,8 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
               <div className="absolute inset-0 bg-gradient-to-br from-primary/3 to-accent/3" />
               {!camera ? (
                 <Camera className="w-16 h-16 text-muted-foreground/20" />
+              ) : processing && isFaceWorkspace ? (
+                <video ref={videoRef} className="h-full w-full object-cover" muted playsInline autoPlay />
               ) : processing ? (
                 <canvas ref={canvasRef} className="w-full h-full" />
               ) : camera.type === "usb" || camera.type === "csi" ? (
@@ -660,14 +785,14 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
             {!processing ? (
               <button
                 onClick={() => void startProcessing()}
-                disabled={!selectedModel}
+                disabled={!isFaceWorkspace && !selectedModel}
                 className={`flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium transition-all ${
-                  selectedModel
+                  isFaceWorkspace || selectedModel
                     ? "glow-primary-sm bg-gradient-atomic text-primary-foreground hover:scale-[1.02]"
                     : "cursor-not-allowed bg-muted text-muted-foreground"
                 }`}
               >
-                <Zap className="w-4 h-4" /> Start AI Processing
+                <Zap className="w-4 h-4" /> {isFaceWorkspace ? "Start face stream" : "Start AI Processing"}
               </button>
             ) : (
               <button
@@ -688,18 +813,25 @@ const LiveViewScreen = ({ camera, onBack, onUpdateCamera }: Props) => {
             </button>
           </div>
 
-          {/* Model Selection — choosing a model starts the detection stream */}
-          {modelPickerOpen || !selectedModel ? (
-            <ModelSelector selected={selectedModel} onSelect={handleModelSelect} models={models} />
-          ) : (
-            <button
-              type="button"
-              onClick={() => setModelPickerOpen(true)}
-              className="w-full rounded-xl border border-border bg-surface px-4 py-3 text-sm font-medium text-foreground hover:bg-muted transition-colors"
-            >
-              {selectedModelName ? `AI Model: ${selectedModelName} (change)` : "Select AI Model"}
-            </button>
-          )}
+          {/* Model Selection — ASNN workspaces only */}
+          {!isFaceWorkspace &&
+            (modelPickerOpen || !selectedModel ? (
+              <ModelSelector selected={selectedModel} onSelect={handleModelSelect} models={models} />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setModelPickerOpen(true)}
+                className="w-full rounded-xl border border-border bg-surface px-4 py-3 text-sm font-medium text-foreground hover:bg-muted transition-colors"
+              >
+                {selectedModelName ? `AI Model: ${selectedModelName} (change)` : "Select AI Model"}
+              </button>
+            ))}
+          {isFaceWorkspace ? (
+            <p className="text-xs text-muted-foreground">
+              Uses the <span className="font-mono">live_stream</span> face model (YOLO11n-face + MobileFaceNet).
+              Known and Unknown detections are saved under Face recognition.
+            </p>
+          ) : null}
         </div>
 
         {/* Right side info */}

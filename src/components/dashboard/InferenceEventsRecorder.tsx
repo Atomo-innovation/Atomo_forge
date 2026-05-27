@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import type { CameraConfig } from "@/pages/Dashboard";
 import { createInferenceEventSink } from "@/services/inferenceEventPipeline";
 import { inferenceBackendForCamera } from "@/lib/inferenceBackend";
+import { isFaceInferenceSession } from "@/services/faceLiveStream";
 import { subscribeUniversalSession } from "@/services/universalSessionWs";
 
 export default function InferenceEventsRecorder({
@@ -17,6 +18,7 @@ export default function InferenceEventsRecorder({
     const out: Array<{ sessionId: string; camera: CameraConfig }> = [];
     for (const c of cameras) {
       if (!c?.inferenceSessionId) continue;
+      if (isFaceInferenceSession(c.inferenceSessionId)) continue;
       if (excludeSessionId && c.inferenceSessionId === excludeSessionId) continue;
       out.push({ sessionId: c.inferenceSessionId, camera: c });
     }

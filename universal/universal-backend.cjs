@@ -444,6 +444,47 @@ function createUniversalState({ modelsDir, uploadsDir, detectScript, personScrip
       res.json({ models: scanModels(modelsDir) });
     });
 
+    const PROTECTED_MODEL_FOLDERS = new Set(["person", "safety"]);
+
+    router.delete("/api/models/:folderName", (req, res) => {
+      const folderName = path.basename(String(req.params.folderName || "").trim());
+      if (!folderName || folderName === "." || folderName === "..") {
+        return res.status(400).json({ error: "Invalid model name" });
+      }
+      if (PROTECTED_MODEL_FOLDERS.has(folderName.toLowerCase())) {
+        return res.status(403).json({
+          error: "Cannot delete built-in Person or Safety model folders",
+        });
+      }
+
+      const modelDir = path.join(modelsDir, folderName);
+      const modelsRoot = path.resolve(modelsDir);
+      const resolved = path.resolve(modelDir);
+      if (resolved !== modelsRoot && !resolved.startsWith(modelsRoot + path.sep)) {
+        return res.status(400).json({ error: "Invalid model path" });
+      }
+      if (!fs.existsSync(modelDir) || !fs.statSync(modelDir).isDirectory()) {
+        return res.status(404).json({ error: `Model '${folderName}' not found` });
+      }
+
+      sessions.forEach((session, sid) => {
+        const name = session && session.model && session.model.name;
+        if (name && name.toLowerCase() === folderName.toLowerCase()) {
+          stopSession(sid);
+        }
+      });
+
+      try {
+        fs.rmSync(modelDir, { recursive: true, force: true });
+      } catch (e) {
+        return res.status(500).json({
+          error: e && e.message ? e.message : "Failed to delete model folder",
+        });
+      }
+
+      res.json({ ok: true, folderName });
+    });
+
     router.get("/api/system", (req, res) => {
       let arch = "unknown",
         hostname = "unknown",

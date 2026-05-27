@@ -5,7 +5,7 @@ export const DASHBOARD_VIEW_META: Partial<
 > = {
   home: {
     title: "Overview",
-    description: "Key metrics, cameras, and recent activity across all detection workspaces.",
+    description: "Cameras and recent activity across all detection workspaces.",
   },
   twin: {
     title: "Digital twin",

@@ -1,6 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Brain, Zap, Download, Camera, Wifi, Video, Plus, X } from "lucide-react";
+import { Brain, Zap, Download, Camera, Wifi, Video, Plus, X, Trash2 } from "lucide-react";
 import { useModels } from "@/hooks/useModels";
+import { useAuthUsername } from "@/contexts/AuthUsernameContext";
+import {
+  isProtectedModelName,
+  registerDynamicWorkspaceForModel,
+} from "@/lib/dynamicWorkspaces";
+import { removeModelCompletely } from "@/services/modelRemoval";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { toast } from "sonner";
 
 type InputSource = "webcam" | "rtsp" | "video";
 
@@ -11,7 +28,14 @@ type Detection = {
   box: [number, number, number, number];
 };
 
-const ModelsView = () => {
+const ModelsView = ({
+  onNavigate,
+  onModelRemoved,
+}: {
+  onNavigate?: (view: string) => void;
+  onModelRemoved?: (removedWorkspaceIds: string[]) => void;
+} = {}) => {
+  const username = useAuthUsername();
   const [selected, setSelected] = useState<string | null>(null);
   const [inputSource, setInputSource] = useState<InputSource | null>(null);
   const [rtspUrl, setRtspUrl] = useState("");
@@ -24,7 +48,7 @@ const ModelsView = () => {
   const [runStatus, setRunStatus] = useState<string | null>(null);
   const [lastLog, setLastLog] = useState<string | null>(null);
 
-  const { models, loading, error } = useModels();
+  const { models, loading, error, refresh } = useModels();
 
   const wsRef = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef<string | null>(null);
@@ -41,6 +65,8 @@ const ModelsView = () => {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const folderInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -57,7 +83,7 @@ const ModelsView = () => {
     const hasNb = files.some((f) => f.name.endsWith(".nb"));
     const hasSo = files.some((f) => f.name.endsWith(".so"));
     if (!hasNb || !hasSo) {
-      setUploadError(`"${folderName}" mein .nb aur .so dono files honi chahiye`);
+      setUploadError(`"${folderName}" need both .nb and .so files.`);
       if (folderInputRef.current) folderInputRef.current.value = "";
       return;
     }
@@ -83,6 +109,14 @@ const ModelsView = () => {
 
       setUploadSuccess(`✓ "${data.folderName}" model successfully loaded!`);
       setTimeout(() => setUploadSuccess(null), 4000);
+      if (data.folderName) {
+        const nextId = registerDynamicWorkspaceForModel(data.folderName);
+        if (nextId) {
+          if (onNavigate) onNavigate(nextId);
+          else window.location.reload();
+        }
+      }
+      refresh();
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : "Upload failed");
     } finally {
@@ -448,6 +482,34 @@ const ModelsView = () => {
     });
   }, [models, query]);
 
+  const confirmDeleteModel = async () => {
+    if (!deleteTarget) return;
+    const modelName = deleteTarget;
+    setDeleting(true);
+    try {
+      if (selected === modelName) {
+        await stopInference();
+        setSelected(null);
+        setInputSource(null);
+      }
+      const result = await removeModelCompletely(modelName, username);
+      if (!result.ok) {
+        toast.error(result.error || "Could not delete model");
+        return;
+      }
+      refresh();
+      onModelRemoved?.(result.removedWorkspaceIds);
+      const tabMsg =
+        result.removedWorkspaceIds.length > 0
+          ? " Detection tab removed."
+          : "";
+      toast.success(`Removed "${modelName}".${tabMsg}`);
+    } finally {
+      setDeleting(false);
+      setDeleteTarget(null);
+    }
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden animate-fade-in bg-background">
       <div className="shrink-0 border-b border-border/60 bg-card/50 backdrop-blur-sm px-4 py-3 md:px-6">
@@ -580,41 +642,65 @@ const ModelsView = () => {
                       const active = selected === m.id;
                       const subtitle = m.classes?.length ? `${m.classes.length} classes` : m.yaml ? "data.yaml" : "—";
                       const Icon = m.icon;
+                      const protectedModel = isProtectedModelName(m.name);
 
                       return (
-                        <button
+                        <div
                           key={m.id}
-                          onClick={() => {
-                            void stopInference();
-                            setSelected(m.id);
-                            setInputSource(null);
-                            setRtspUrl("");
-                            setVideoFile(null);
-                            setRunError(null);
-                            setRunState("idle");
-                          }}
-                          className={`w-full p-3 rounded-lg border text-left transition-all duration-150 text-sm ${
+                          className={`flex gap-1 rounded-lg border text-sm transition-all duration-150 ${
                             active
                               ? "border-primary bg-primary/15 glow-primary-sm"
                               : "border-border bg-muted/40 hover:border-primary/40 hover:bg-muted/60"
                           }`}
                         >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-1.5">
-                                {Icon ? <Icon className={`w-4 h-4 shrink-0 ${active ? "text-primary" : "text-muted-foreground"}`} /> : null}
-                                <div className="font-semibold truncate text-sm">{m.name}</div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void stopInference();
+                              setSelected(m.id);
+                              setInputSource(null);
+                              setRtspUrl("");
+                              setVideoFile(null);
+                              setRunError(null);
+                              setRunState("idle");
+                            }}
+                            className="min-w-0 flex-1 p-3 text-left"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5">
+                                  {Icon ? (
+                                    <Icon
+                                      className={`w-4 h-4 shrink-0 ${active ? "text-primary" : "text-muted-foreground"}`}
+                                    />
+                                  ) : null}
+                                  <div className="font-semibold truncate text-sm">{m.name}</div>
+                                </div>
+                                <div className="mt-1 text-xs text-muted-foreground truncate">{m.id}</div>
                               </div>
-                              <div className="mt-1 text-xs text-muted-foreground truncate">{m.id}</div>
+                              {m.npuOptimized && (
+                                <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-semibold bg-accent/20 text-accent shrink-0">
+                                  <Zap className="w-2.5 h-2.5" /> NPU
+                                </span>
+                              )}
                             </div>
-                            {m.npuOptimized && (
-                              <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-semibold bg-accent/20 text-accent shrink-0">
-                                <Zap className="w-2.5 h-2.5" /> NPU
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-[11px] text-muted-foreground mt-1.5">{subtitle}</div>
-                        </button>
+                            <div className="text-[11px] text-muted-foreground mt-1.5">{subtitle}</div>
+                          </button>
+                          {!protectedModel ? (
+                            <button
+                              type="button"
+                              title={`Remove ${m.name} and its detection tab`}
+                              disabled={deleting}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDeleteTarget(m.name);
+                              }}
+                              className="shrink-0 self-center mr-2 rounded-md p-2 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          ) : null}
+                        </div>
                       );
                     })}
                   </div>
@@ -836,6 +922,36 @@ const ModelsView = () => {
             </div>
           </div>
       </div>
+
+      <AlertDialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setDeleteTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove model &quot;{deleteTarget}&quot;?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This deletes the model files from the device and removes its Detection sidebar tab (if one
+              was created). Cameras on that tab are removed. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => {
+                e.preventDefault();
+                void confirmDeleteModel();
+              }}
+            >
+              {deleting ? "Removing…" : "Remove"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

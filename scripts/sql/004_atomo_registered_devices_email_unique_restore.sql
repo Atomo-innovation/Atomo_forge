@@ -12,8 +12,17 @@ SET @idx_exists := (
     AND table_name = 'atomo_registered_devices'
     AND index_name = 'uq_atomo_reg_devices_email_lower'
 );
+SET @dup_emails := (
+  SELECT COUNT(*) FROM (
+    SELECT LOWER(TRIM(email)) AS e
+    FROM atomo_registered_devices
+    WHERE email IS NOT NULL AND TRIM(email) <> ''
+    GROUP BY LOWER(TRIM(email))
+    HAVING COUNT(*) > 1
+  ) AS d
+);
 SET @create_stmt := IF(
-  @idx_exists = 0,
+  @idx_exists = 0 AND @dup_emails = 0,
   'CREATE UNIQUE INDEX uq_atomo_reg_devices_email_lower ON atomo_registered_devices ((LOWER(email)))',
   'SELECT 1'
 );

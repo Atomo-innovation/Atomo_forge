@@ -1,18 +1,19 @@
 import type { CameraConfig, CameraWorkspaceId } from "@/pages/Dashboard";
 
-/** All inference uses the embedded asnn-dashboard backend at /asnn */
+/** ASNN object-detection backend */
 export const INFERENCE_API_BASE = "/asnn";
 
-export type InferenceBackendId = "asnn";
+export type InferenceBackendId = "asnn" | "face";
 
-export function inferenceBackendForWorkspace(_workspaceId?: CameraWorkspaceId): InferenceBackendId {
+export function inferenceBackendForWorkspace(workspaceId?: CameraWorkspaceId): InferenceBackendId {
+  return workspaceId === "cameras3" ? "face" : "asnn";
+}
+
+export function inferenceBackendForCamera(camera?: CameraConfig | null): InferenceBackendId {
+  if (camera?.detectionWorkspace === "cameras3") return "face";
   return "asnn";
 }
 
-export function inferenceBackendForCamera(_camera?: CameraConfig | null): InferenceBackendId {
-  return "asnn";
-}
-
-export function inferenceApiBase(_backend: InferenceBackendId = "asnn"): string {
-  return INFERENCE_API_BASE;
+export function inferenceApiBase(backend: InferenceBackendId = "asnn"): string {
+  return backend === "face" ? "/face-stream" : INFERENCE_API_BASE;
 }

@@ -6,6 +6,7 @@
   "scripts": {
     "postinstall": "node scripts/install-pdeu-digital-twin.cjs",
     "dev": "bash scripts/npm-dev.sh",
+    "face-stream": "LIVE_STREAM_PORT=3010 node scripts/start-live-stream.cjs",
     "start": "npm run dev",
     "dev:events": "npm run dev",
     "dev:no-tunnel": "bash scripts/npm-dev.sh --no-tunnel",

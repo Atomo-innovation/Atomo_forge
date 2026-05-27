@@ -112,20 +112,12 @@ const RegistrationScreen = ({
   /** Closing sudo modal to run install — do not treat as cancel/skip. */
   const meshModalClosingForRunRef = useRef(false);
 
-  useEffect(() => {
-    if (meshGroupName.trim()) return;
-    const suggested = organizationName.trim() || deviceName.trim();
-    if (suggested) setMeshGroupName(suggested);
-  }, [organizationName, deviceName, meshGroupName]);
-
   /** Create MeshCentral device group; returns false if API failed. */
   const createMeshGroupByName = async (name: string): Promise<boolean> => {
     if (meshIdCreated.trim()) return true;
     const trimmed = name.trim();
     if (!trimmed) {
-      setMeshError(
-        "Enter a device group name (or organization / device name) for MeshCentral.",
-      );
+      setMeshError("Enter a device group name for MeshCentral.");
       return false;
     }
     const { u, p } = resolveMeshCredentials();
@@ -762,11 +754,7 @@ const RegistrationScreen = ({
                         </label>
                         <input
                           type="text"
-                          placeholder={
-                            organizationName.trim() ||
-                            deviceName.trim() ||
-                            "e.g. Production floor"
-                          }
+                          placeholder="e.g. Production floor"
                           value={meshGroupName}
                           onChange={(e) => setMeshGroupName(e.target.value)}
                           className="w-full px-4 py-3 rounded-lg bg-muted border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"

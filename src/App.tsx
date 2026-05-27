@@ -22,10 +22,7 @@ import { applyBoardLocalAuthIfEnabled } from "@/lib/boardDevAuth";
 
 const queryClient = new QueryClient();
 
-/**
- * Routed content lives inside `BrowserRouter` so logout can navigate to `/login`,
- * while `/dashboard` stays a direct destination with no gate.
- */
+/** Routed content lives inside `BrowserRouter` so logout can navigate to `/login`. */
 const ForgeRoutes = () => {
   const navigate = useNavigate();
   const initialAuth = applyBoardLocalAuthIfEnabled();
@@ -104,7 +101,18 @@ const ForgeRoutes = () => {
             isLoggedIn ? <Navigate to={postLoginPath()} replace /> : <Onboarding onOnboardingComplete={handleOnboardingComplete} />
           }
         />
-        <Route path="/dashboard" element={<Dashboard onLogout={handleLogout} />} />
+        <Route
+          path="/dashboard"
+          element={
+            !isLoggedIn ? (
+              <Navigate to="/login" replace />
+            ) : !registrationGateOpen ? (
+              <Navigate to="/register" replace />
+            ) : (
+              <Dashboard onLogout={handleLogout} />
+            )
+          }
+        />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </AuthUsernameProvider>

@@ -9,8 +9,11 @@ import {
   Settings,
   ChevronLeft,
   Box,
+  Cpu,
 } from "lucide-react";
+import { useState, useEffect } from "react";
 import type { DashboardView } from "@/pages/Dashboard";
+import { loadDynamicWorkspaces } from "@/pages/Dashboard";
 import { EVENTS_TAB_ENABLED } from "@/lib/featureFlags";
 import { cn } from "@/lib/utils";
 
@@ -21,9 +24,30 @@ interface Props {
   onNavigate: (view: DashboardView) => void;
   open: boolean;
   onToggle: () => void;
+  onModelRemoved?: (removedWorkspaceIds: string[]) => void;
 }
 
-type NavItem = { id: DashboardView; label: string; icon: React.ElementType };
+type NavItem = {
+  id: DashboardView;
+  label: string;
+  icon: React.ElementType;
+};
+
+const DashboardSidebar = ({ currentView, onNavigate, open, onToggle, onModelRemoved }: Props) => {
+  const [dynamicWorkspaces, setDynamicWorkspaces] = useState<Record<string, string>>(loadDynamicWorkspaces());
+
+  useEffect(() => {
+    const onStorage = () => setDynamicWorkspaces(loadDynamicWorkspaces());
+    window.addEventListener("storage", onStorage);
+    setDynamicWorkspaces(loadDynamicWorkspaces());
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
+  const dynamicItems = Object.entries(dynamicWorkspaces).map(([id, title]) => ({
+    id: id as DashboardView,
+    label: title,
+    icon: Cpu,
+  }));
 
 const navGroups: { label: string; items: NavItem[] }[] = [
   {
@@ -40,6 +64,7 @@ const navGroups: { label: string; items: NavItem[] }[] = [
       { id: "cameras2", label: "Fire & smoke", icon: Flame },
       { id: "cameras3", label: "Face recognition", icon: ScanFace },
       { id: "cameras4", label: "Safety", icon: Shield },
+      ...dynamicItems,
     ],
   },
   {
@@ -52,8 +77,7 @@ const navGroups: { label: string; items: NavItem[] }[] = [
   },
 ];
 
-const DashboardSidebar = ({ currentView, onNavigate, open, onToggle }: Props) => {
-  return (
+return (
     <aside
       className={cn(
         "dashboard-sidebar flex h-screen shrink-0 flex-col overflow-hidden border-r border-sidebar-border transition-[width] duration-300 ease-out",
@@ -118,27 +142,36 @@ const DashboardSidebar = ({ currentView, onNavigate, open, onToggle }: Props) =>
                 const active = currentView === item.id;
                 return (
                   <li key={item.id}>
-                    <button
-                      type="button"
-                      onClick={() => onNavigate(item.id)}
-                      title={!open ? item.label : undefined}
+                    <div
                       className={cn(
-                        "flex w-full items-center gap-3 rounded-lg py-2.5 text-sm font-medium transition-colors",
-                        open ? "px-3" : "justify-center px-0",
-                        active
-                          ? cn(
-                              "bg-sidebar-accent text-sidebar-foreground",
-                              open && "border-l-2 border-primary pl-[10px]",
-                            )
-                          : cn(
-                              "text-sidebar-foreground/70 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground",
-                              open && "border-l-2 border-transparent pl-[10px]",
-                            ),
+                        "flex w-full items-center gap-0.5 rounded-lg transition-colors",
+                        active ? "bg-sidebar-accent" : "hover:bg-sidebar-accent/70",
                       )}
                     >
-                      <item.icon className={cn("h-[1.125rem] w-[1.125rem] shrink-0", active ? "text-primary" : "text-sidebar-foreground/60")} />
-                      {open ? <span className="truncate">{item.label}</span> : null}
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => onNavigate(item.id)}
+                        title={!open ? item.label : undefined}
+                        className={cn(
+                          "flex min-w-0 flex-1 items-center gap-3 py-2.5 text-sm font-medium transition-colors",
+                          open ? "px-3" : "justify-center px-0",
+                          active
+                            ? cn("text-sidebar-foreground", open && "border-l-2 border-primary pl-[10px]")
+                            : cn(
+                                "text-sidebar-foreground/70 hover:text-sidebar-foreground",
+                                open && "border-l-2 border-transparent pl-[10px]",
+                              ),
+                        )}
+                      >
+                        <item.icon
+                          className={cn(
+                            "h-[1.125rem] w-[1.125rem] shrink-0",
+                            active ? "text-primary" : "text-sidebar-foreground/60",
+                          )}
+                        />
+                        {open ? <span className="truncate">{item.label}</span> : null}
+                      </button>
+                    </div>
                   </li>
                 );
               })}

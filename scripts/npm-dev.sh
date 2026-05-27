@@ -49,21 +49,38 @@ bash "$ROOT/scripts/ensure-electron-local-dev.sh"
 
 CONCURRENTLY=(npx concurrently -k)
 
+FACE_STREAM_CMDS=()
+FACE_STREAM_NAMES=""
+FACE_STREAM_COLORS=""
+if [[ -f "$ROOT/live_stream/server.js" ]] && [[ "${FORGE_SKIP_FACE_STREAM:-}" != "1" ]]; then
+  export LIVE_STREAM_PORT="${LIVE_STREAM_PORT:-3010}"
+  export FORGE_SKIP_MEDIAMTX="${FORGE_SKIP_MEDIAMTX:-1}"
+  FACE_STREAM_CMDS=(
+    "node scripts/start-live-stream.cjs"
+    "node scripts/start-face-detector.cjs"
+  )
+  FACE_STREAM_NAMES=",face,facepy"
+  FACE_STREAM_COLORS=",magenta,cyan"
+  printf '[forge] Face stream → http://127.0.0.1:%s (Vite proxy /face-stream)\n' "$LIVE_STREAM_PORT"
+fi
+
 if [[ "$NO_TUNNEL" -eq 1 ]]; then
-  exec "${CONCURRENTLY[@]}" -n api,twin,detect,mtx,caddy,web -c cyan,green,red,blue,white,magenta \
+  exec "${CONCURRENTLY[@]}" -n "api,twin,detect,mtx,caddy,web${FACE_STREAM_NAMES}" -c "cyan,green,red,blue,white,magenta${FACE_STREAM_COLORS}" \
     "node auth-server.cjs" \
     "node scripts/start-pdeu-digital-twin.cjs" \
     "node scripts/start-combine-detector.cjs" \
     "node scripts/start-mediamtx.cjs" \
     "bash scripts/ensure-caddy-for-dev.sh" \
-    "vite"
+    "vite" \
+    "${FACE_STREAM_CMDS[@]}"
 else
-  exec "${CONCURRENTLY[@]}" -n tunnel,api,twin,detect,mtx,caddy,web -c yellow,cyan,green,red,blue,white,magenta \
+  exec "${CONCURRENTLY[@]}" -n "tunnel,api,twin,detect,mtx,caddy,web${FACE_STREAM_NAMES}" -c "yellow,cyan,green,red,blue,white,magenta${FACE_STREAM_COLORS}" \
     "bash scripts/mysql-tunnel-to-ec2.sh" \
     "node auth-server.cjs" \
     "node scripts/start-pdeu-digital-twin.cjs" \
     "node scripts/start-combine-detector.cjs" \
     "node scripts/start-mediamtx.cjs" \
     "bash scripts/ensure-caddy-for-dev.sh" \
-    "vite"
+    "vite" \
+    "${FACE_STREAM_CMDS[@]}"
 fi

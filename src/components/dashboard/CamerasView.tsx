@@ -25,6 +25,9 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { DASHBOARD_VIEW_META } from "@/lib/dashboardViewMeta";
 import { canAddMoreCameras, MAX_CAMERAS } from "@/lib/cameraLimits";
 import { cn } from "@/lib/utils";
+import { loadDynamicWorkspaces } from "@/lib/dynamicWorkspaces";
+import { removeModelCompletely } from "@/services/modelRemoval";
+import { toast } from "sonner";
 
 interface Props {
   /** Which sidebar detection workspace this screen is for — stored on new cameras. */
@@ -38,6 +41,8 @@ interface Props {
   onUpdateCamera: (cameraId: string, patch: Partial<CameraConfig>) => void;
   onDeleteCamera: (cameraId: string) => void;
   onOpenLiveView: (camera: CameraConfig) => void;
+  onNavigate?: (view: CameraWorkspaceId | "models" | "home") => void;
+  onModelRemoved?: (removedWorkspaceIds: string[]) => void;
 }
 
 const CamerasView = ({
@@ -49,6 +54,8 @@ const CamerasView = ({
   onUpdateCamera,
   onDeleteCamera,
   onOpenLiveView,
+  onNavigate,
+  onModelRemoved,
 }: Props) => {
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [renameTarget, setRenameTarget] = useState<CameraConfig | null>(null);
@@ -192,6 +199,9 @@ const CamerasView = ({
 
   const meta = DASHBOARD_VIEW_META[workspaceId];
   const canAddCamera = canAddMoreCameras(totalCameraCount);
+  const dynamicModelName = useMemo(() => loadDynamicWorkspaces()[workspaceId], [workspaceId]);
+  const isDynamicWorkspace = Boolean(dynamicModelName);
+  const [removingModel, setRemovingModel] = useState(false);
 
   return (
     <div className="animate-fade-in">
@@ -199,15 +209,51 @@ const CamerasView = ({
         title={meta?.title ?? workspaceTitle}
         description={meta?.description ?? "Manage connected cameras for this workspace."}
         actions={
-          <button
-            type="button"
-            onClick={() => canAddCamera && setAddModalOpen(true)}
-            disabled={!canAddCamera}
-            title={canAddCamera ? undefined : `Maximum ${MAX_CAMERAS} cameras`}
-            className={cn("gap-2", canAddCamera ? "btn-primary-gradient" : "btn-primary-gradient cursor-not-allowed opacity-50")}
-          >
-            <Plus className="h-4 w-4" /> Add camera
-          </button>
+          <>
+            {isDynamicWorkspace ? (
+              <button
+                type="button"
+                onClick={async () => {
+                  const ok = window.confirm(
+                    `Delete model "${dynamicModelName}" and remove this tab? This cannot be undone.`,
+                  );
+                  if (!ok) return;
+                  setRemovingModel(true);
+                  try {
+                    const r = await removeModelCompletely(dynamicModelName, forgeAccount);
+                    if (!r.ok) {
+                      toast.error(r.error || "Could not delete model");
+                      return;
+                    }
+                    onModelRemoved?.(r.removedWorkspaceIds);
+                    toast.success(`Deleted "${dynamicModelName}"`);
+                    onNavigate?.("models");
+                  } finally {
+                    setRemovingModel(false);
+                  }
+                }}
+                disabled={removingModel}
+                title={removingModel ? "Deleting…" : `Delete "${dynamicModelName}" model & tab`}
+                className={cn(
+                  "rounded-lg bg-destructive/10 px-3 py-2 text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-50",
+                )}
+              >
+                <Trash2 className={cn("h-4 w-4", removingModel && "animate-pulse")} />
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => canAddCamera && setAddModalOpen(true)}
+              disabled={!canAddCamera}
+              title={canAddCamera ? undefined : `Maximum ${MAX_CAMERAS} cameras`}
+              className={cn(
+                "gap-2",
+                canAddCamera ? "btn-primary-gradient" : "btn-primary-gradient cursor-not-allowed opacity-50",
+              )}
+            >
+              <Plus className="h-4 w-4" /> Add camera
+            </button>
+          </>
         }
       />
       <div className="space-y-6">

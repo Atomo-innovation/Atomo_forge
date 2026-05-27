@@ -44,7 +44,7 @@ const ModelsView = () => {
     const hasNb = files.some(f => f.name.endsWith('.nb'));
     const hasSo = files.some(f => f.name.endsWith('.so'));
     if (!hasNb || !hasSo) {
-      setUploadError(`"${folderName}" mein .nb aur .so dono files honi chahiye`);
+      setUploadError(`"${folderName}" need both .nb and .so files.`);
       if (folderInputRef.current) folderInputRef.current.value = '';
       return;
     }

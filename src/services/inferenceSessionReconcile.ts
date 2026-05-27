@@ -1,5 +1,6 @@
 import type { CameraConfig } from "@/pages/Dashboard";
 import { INFERENCE_API_BASE } from "@/lib/inferenceBackend";
+import { isFaceInferenceSession } from "@/services/faceLiveStream";
 
 export type InferenceSessionInfo = {
   id: string;
@@ -47,6 +48,7 @@ export async function reconcileCameraInferenceSessions(
 
   for (const cam of withSid) {
     const sid = cam.inferenceSessionId!;
+    if (isFaceInferenceSession(sid)) continue;
     if (active.has(sid)) continue;
     onUpdateCamera(cam.id, {
       inferenceSessionId: undefined,

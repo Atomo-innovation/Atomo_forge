@@ -48,3 +48,21 @@ export async function fetchAsnnDashboardModels(signal?: AbortSignal): Promise<Mo
     yaml: m.yaml,
   }));
 }
+
+export async function deleteAsnnModel(folderName: string): Promise<void> {
+  const name = folderName.trim();
+  if (!name) throw new Error("Model name is required");
+
+  const url = authApiUrl(`/asnn/api/models/${encodeURIComponent(name)}`);
+  const res = await fetch(url, { method: "DELETE" });
+  const data = await readForgeApiJson<{ ok?: boolean; error?: string }>(res);
+  // UX: if the folder is already gone, treat it as deleted.
+  if (res.status === 404) return;
+  if (!res.ok || !data?.ok) {
+    throw new Error(
+      data?.error && typeof data.error === "string"
+        ? data.error
+        : `Delete model failed (${res.status})`,
+    );
+  }
+}

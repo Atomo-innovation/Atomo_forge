@@ -17,9 +17,6 @@ type ApiErrorPayload = {
   details?: { code?: string | null; address?: string | null; port?: number | null };
 };
 
-/** Board showcase — served from `public/atomo12.webm`. */
-const LOGIN_HERO_VIDEO = `${import.meta.env.BASE_URL}atomo12.webm`;
-
 const LoginScreen = ({ onGetStarted, onLoginSuccess }: LoginScreenProps) => {
   const defaultMeshCentralBaseUrl = "https://65.2.142.160:4434";
 
@@ -114,7 +111,6 @@ const LoginScreen = ({ onGetStarted, onLoginSuccess }: LoginScreenProps) => {
       title="Sign in"
       description="Use your Atomic Center credentials to access the dashboard."
       icon={<Cpu className="h-6 w-6" />}
-      heroVideoSrc={LOGIN_HERO_VIDEO}
       forceLight
     >
       <form onSubmit={handleSubmit} className="space-y-5">

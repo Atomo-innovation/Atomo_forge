@@ -60,7 +60,7 @@ function tcpOpen(port: number, timeoutMs = 450): Promise<boolean> {
   });
 }
 
-async function waitForTwinListening(port: number, maxMs: number): Promise<boolean> {
+async function waitForTcpPort(port: number, maxMs: number): Promise<boolean> {
   const t0 = Date.now();
   while (Date.now() - t0 < maxMs) {
     // eslint-disable-next-line no-await-in-loop
@@ -70,6 +70,8 @@ async function waitForTwinListening(port: number, maxMs: number): Promise<boolea
   }
   return false;
 }
+
+const waitForTwinListening = waitForTcpPort;
 
 /** If npm run dev’s twin starts late (or someone runs bare `vite`), bring up the twin listener. */
 function pdeuTwinAutoStartPlugin(repoRoot: string, port: number): Plugin {
@@ -140,6 +142,74 @@ function pdeuTwinAutoStartPlugin(repoRoot: string, port: number): Plugin {
   };
 }
 
+/** If concurrently did not start live_stream, bring it up when Face recognition needs :3010. */
+function faceStreamAutoStartPlugin(repoRoot: string, port: number): Plugin {
+  let child: ChildProcess | undefined;
+  let weSpawned = false;
+  let cleaned = false;
+
+  return {
+    name: "face-stream-auto-start",
+    apply: (_, env) => env.command === "serve" && !env.isPreview,
+    configureServer(server) {
+      if (
+        process.env.SKIP_VITE_AUTO_FACE_STREAM === "1" ||
+        process.env.FORGE_SKIP_FACE_STREAM === "1"
+      ) {
+        return undefined;
+      }
+      const launcher = path.join(repoRoot, "scripts", "start-live-stream.cjs");
+
+      const bootstrap = async () => {
+        const warmed = await waitForTcpPort(port, 45_000);
+        if (warmed || cleaned) {
+          if (!cleaned && warmed)
+            console.info(`[face-stream] API ready on 127.0.0.1:${port} (proxy /face-stream)`);
+          return;
+        }
+        if (!fs.existsSync(path.join(repoRoot, "live_stream", "server.js"))) return;
+        console.warn(
+          `[face-stream] nothing on 127.0.0.1:${port} after 45s — starting via ${launcher}`,
+        );
+        try {
+          child = spawn(process.execPath, [launcher], {
+            cwd: repoRoot,
+            env: { ...process.env, LIVE_STREAM_PORT: String(port) },
+            stdio: "inherit",
+          });
+          weSpawned = true;
+          child.on("exit", (code, signal) => {
+            if (!weSpawned || cleaned) return;
+            console.warn(`[face-stream] exited code=${code} signal=${signal ?? "none"}`);
+          });
+        } catch (e) {
+          console.warn("[face-stream] spawn failed:", e);
+        }
+      };
+
+      server.httpServer?.once("listening", () => {
+        void bootstrap();
+      });
+
+      const killChild = () => {
+        cleaned = true;
+        if (!weSpawned || !child?.pid) return;
+        try {
+          child.kill("SIGTERM");
+        } catch {
+          /* ignore */
+        }
+      };
+      process.on("exit", killChild);
+
+      return () => {
+        process.off("exit", killChild);
+        killChild();
+      };
+    },
+  };
+}
+
 // Filter only the harmless dev-time TCP-race messages from the WS proxy
 // (browser closes a /universal WS while Vite is still mid-write to upstream).
 // Real proxy errors with different messages still propagate.
@@ -150,6 +220,8 @@ const NOISY_DEV_LOG_PATTERNS: RegExp[] = [
   /ERR_STREAM_WRITE_AFTER_END/i,
   /\bEPIPE\b/,
   /\bECONNRESET\b/,
+  /ECONNREFUSED 127\.0\.0\.1:3010/i,
+  /http proxy error:.*\/face-stream/i,
 ];
 
 function makeQuietLogger() {
@@ -215,6 +287,9 @@ export default defineConfig(({ mode }) => {
   hydrateForgeDotEnv();
   const env = loadEnv(mode, process.cwd(), "");
   const apiTarget = "http://localhost:3003";
+  const faceStreamPort =
+    Number(env.LIVE_STREAM_PORT || process.env.LIVE_STREAM_PORT || 3010) || 3010;
+  const faceStreamTarget = `http://127.0.0.1:${faceStreamPort}`;
   /** Match Vite: `.env.development*` overrides `.env` / `.env.local` set by load-env.cjs. */
   const twinHttpPort =
     Number(env.TWIN_HTTP_PORT || process.env.TWIN_HTTP_PORT || 3000) || 3000;
@@ -262,6 +337,12 @@ export default defineConfig(({ mode }) => {
       timeout: 0,
       proxyTimeout: 0,
       rewrite: (p: string) => (p.replace(/^\/pdeu-twin/, "") || "/"),
+    },
+    "/face-stream": {
+      target: faceStreamTarget,
+      changeOrigin: true,
+      ws: true,
+      rewrite: (p: string) => p.replace(/^\/face-stream/, "") || "/",
     },
   };
 
@@ -320,6 +401,7 @@ export default defineConfig(({ mode }) => {
   plugins: [
     forgeDevUrlBannerPlugin(devHost, devPort, lanHttpUrl, boardPlainHttp),
     pdeuTwinAutoStartPlugin(__viteRootDir, twinHttpPort),
+    faceStreamAutoStartPlugin(__viteRootDir, faceStreamPort),
     react(),
     mode === "development" && env.FORGE_LOVABLE_TAGGER === "1" && componentTagger(),
   ].filter(Boolean),

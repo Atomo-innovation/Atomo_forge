@@ -32,6 +32,7 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { cn } from "@/lib/utils";
 import { canAddMoreCameras, MAX_CAMERAS } from "@/lib/cameraLimits";
+import { OVERVIEW_KPIS_ENABLED } from "@/lib/featureFlags";
 import { useAuthUsername } from "@/contexts/AuthUsernameContext";
 import { userScopedLocalStorageKey } from "@/services/userScopedStorage";
 
@@ -53,7 +54,11 @@ type PanelId = (typeof PANEL_IDS)[number];
 
 type WidthMode = "half" | "full";
 
-const DEFAULT_ORDER: PanelId[] = [...PANEL_IDS];
+function isOverviewPanelVisible(id: PanelId): boolean {
+  return OVERVIEW_KPIS_ENABLED || id !== "kpis";
+}
+
+const DEFAULT_ORDER: PanelId[] = PANEL_IDS.filter(isOverviewPanelVisible);
 
 const DEFAULT_SPANS: Record<PanelId, WidthMode> = {
   kpis: "half",
@@ -76,7 +81,7 @@ function normalizeOrder(raw: unknown): PanelId[] {
   for (const id of DEFAULT_ORDER) {
     if (!seen.has(id)) out.push(id);
   }
-  return out;
+  return out.filter(isOverviewPanelVisible);
 }
 
 function normalizeSpans(raw: unknown): Record<PanelId, WidthMode> {
@@ -415,10 +420,13 @@ const DashboardHome = ({ cameras, onAddCamera, onUpdateCamera, onViewCamera, onO
     };
   }, []);
 
+  const visibleOrder = useMemo(() => order.filter(isOverviewPanelVisible), [order]);
+
   const isDefaultLayout = useMemo(
     () =>
-      order.join(",") === DEFAULT_ORDER.join(",") && PANEL_IDS.every((id) => spans[id] === "half"),
-    [order, spans],
+      visibleOrder.join(",") === DEFAULT_ORDER.join(",") &&
+      DEFAULT_ORDER.every((id) => spans[id] === "half"),
+    [visibleOrder, spans],
   );
 
   const renderPanel = (id: PanelId) => {
@@ -427,6 +435,7 @@ const DashboardHome = ({ cameras, onAddCamera, onUpdateCamera, onViewCamera, onO
 
     switch (id) {
       case "kpis":
+        if (!OVERVIEW_KPIS_ENABLED) return null;
         return (
           <SortablePanel id="kpis" title="Key metrics" subtitle="Detection and performance summary" widthMode={wm} onToggleWidth={tw}>
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
@@ -693,9 +702,9 @@ const DashboardHome = ({ cameras, onAddCamera, onUpdateCamera, onViewCamera, onO
       />
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <SortableContext items={order} strategy={rectSortingStrategy}>
+        <SortableContext items={visibleOrder} strategy={rectSortingStrategy}>
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-stretch lg:gap-6 xl:gap-8">
-            {order.map((id) => (
+            {visibleOrder.map((id) => (
               <div
                 key={id}
                 className={`min-h-0 min-w-0 ${spans[id] === "full" ? "lg:col-span-2" : ""}`}

@@ -7,6 +7,7 @@ export function useModels() {
   const [remoteModels, setRemoteModels] = useState<ModelInfo[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -23,9 +24,11 @@ export function useModels() {
       .finally(() => setLoading(false));
 
     return () => controller.abort();
-  }, []);
+  }, [reloadToken]);
 
   const models = remoteModels ?? [];
 
-  return { models, loading, error };
+  const refresh = () => setReloadToken((t) => t + 1);
+
+  return { models, loading, error, refresh };
 }

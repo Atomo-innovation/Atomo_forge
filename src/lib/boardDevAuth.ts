@@ -34,9 +34,9 @@ export function applyBoardLocalAuthIfEnabled(): {
     const p = readPersistedSession();
     const u = p?.username ?? null;
     return {
-      isLoggedIn: p != null,
+      isLoggedIn: Boolean(u),
       username: u,
-      registrationGateOpen: Boolean(p != null && hasDeviceProfile(u ?? undefined)),
+      registrationGateOpen: Boolean(u && hasDeviceProfile(u)),
     };
   }
 

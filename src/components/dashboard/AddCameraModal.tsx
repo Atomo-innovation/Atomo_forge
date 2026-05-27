@@ -49,6 +49,8 @@ export function AddCameraModal({
   const [rtspUrl, setRtspUrl] = useState("");
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
   const inferenceBackend = inferenceBackendForWorkspace(workspaceId);
+  const isFaceWorkspace = workspaceId === "cameras3";
+const isAutoSelectWorkspace = workspaceId === "cameras" || workspaceId === "cameras4";
   const { models, loading: modelsLoading, error: modelsError } = useWorkspaceModels(workspaceId);
 
   const closeModal = () => {
@@ -63,7 +65,16 @@ export function AddCameraModal({
     setResolution("1920x1080");
     setFps(30);
     setRtspUrl("");
-    setSelectedModelId(null);
+    if (workspaceId === "cameras" || workspaceId === "cameras4") {
+  const autoModel = models.find((m) =>
+    workspaceId === "cameras"
+      ? m.name.toLowerCase() === "person"
+      : m.name.toLowerCase() === "safety"
+  );
+  setSelectedModelId(autoModel?.id ?? null);
+} else {
+  setSelectedModelId(null);
+}
   }, [open]);
 
   const canSubmit = useMemo(() => {
@@ -94,9 +105,11 @@ export function AddCameraModal({
       device: dev,
       cpuUsage: 0,
       npuUsage: 0,
-      ...(picked
-        ? { inferenceModelId: picked.id, model: picked.name }
-        : {}),
+      ...(isFaceWorkspace
+        ? { model: "Face recognition" }
+        : picked
+          ? { inferenceModelId: picked.id, model: picked.name }
+          : {}),
     };
     return cam;
   };
@@ -137,7 +150,25 @@ export function AddCameraModal({
       </div>
     ) : null;
 
-  const modelPickerSection = (
+  const modelPickerSection = isFaceWorkspace ? (
+    <div className="rounded-lg border border-primary/25 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
+      <p className="font-medium text-foreground">Face recognition (automatic)</p>
+      <p className="mt-1 text-xs">
+        No model selection needed. After adding, open Live View and start the stream — the face model
+        from <span className="font-mono">live_stream</span> runs automatically and stores Known / Unknown
+        events here.
+      </p>
+    </div>
+  ) : isAutoSelectWorkspace ? (
+    <div className="rounded-lg border border-primary/25 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
+      <p className="font-medium text-foreground">
+        {workspaceId === "cameras" ? "Person detection (automatic)" : "Safety detection (automatic)"}
+      </p>
+      <p className="mt-1 text-xs">
+        Model auto-selected. After adding, open Live View and start the stream.
+      </p>
+    </div>
+) : (
     <div className="space-y-2">
       {modelsLoading ? (
         <p className="text-xs text-muted-foreground">Loading models from asnn-dashboard/models…</p>

@@ -6,6 +6,8 @@ import { userScopedLocalStorageKey } from "@/services/userScopedStorage";
 import DashboardSidebar from "@/components/dashboard/DashboardSidebar";
 import DashboardTopBar from "@/components/dashboard/DashboardTopBar";
 import InferenceEventsRecorder from "@/components/dashboard/InferenceEventsRecorder";
+import FaceInferenceEventsRecorder from "@/components/dashboard/FaceInferenceEventsRecorder";
+import { isFaceInferenceSession, unregisterFaceStreamCamera } from "@/services/faceLiveStream";
 import { clearAllDetectionEvents, listDetectionEvents, updateCameraDisplayNameOnEvents } from "@/services/detectionEventsStore";
 import { clearAllExportRootDirectoryHandles } from "@/services/detectionFolderExport";
 import { clearAllServerExportFolders } from "@/services/detectionExportServer";
@@ -21,6 +23,11 @@ export type DashboardView =
   | "cameras2"
   | "cameras3"
   | "cameras4"
+  | "cameras5"
+  | "cameras6"
+  | "cameras7"
+  | "cameras8"
+  | "cameras9"
   | "twin"
   | "liveview"
   | "services"
@@ -28,17 +35,24 @@ export type DashboardView =
   | "models"
   | "settings";
 
-const CAMERA_PANEL_VIEWS: readonly DashboardView[] = ["cameras", "cameras2", "cameras3", "cameras4"];
+const CAMERA_PANEL_VIEWS: readonly DashboardView[] = ["cameras", "cameras2", "cameras3", "cameras4", "cameras5", "cameras6", "cameras7", "cameras8", "cameras9"];
 
-/** Sidebar label for each camera workspace — shown on Cameras / add-camera UI */
-export const CAMERA_WORKSPACE_TITLE: Record<"cameras" | "cameras2" | "cameras3" | "cameras4", string> = {
+import {
+  loadDynamicWorkspaces,
+  saveDynamicWorkspace,
+} from "@/lib/dynamicWorkspaces";
+
+export { loadDynamicWorkspaces, saveDynamicWorkspace };
+
+export const CAMERA_WORKSPACE_TITLE: Record<string, string> = {
   cameras: "Person",
   cameras2: "Fire & Smoke",
   cameras3: "Face recognition",
   cameras4: "Safety",
+  ...loadDynamicWorkspaces(),
 };
 
-export type CameraWorkspaceId = keyof typeof CAMERA_WORKSPACE_TITLE;
+export type CameraWorkspaceId = "cameras" | "cameras2" | "cameras3" | "cameras4" | "cameras5" | "cameras6" | "cameras7" | "cameras8" | "cameras9";
 
 const CAMERA_WORKSPACE_IDS = new Set<string>(Object.keys(CAMERA_WORKSPACE_TITLE));
 
@@ -51,8 +65,8 @@ export interface CameraConfig {
   fps: number;
   /** Which detection workspace this camera was added from (Person, Fire & Smoke, …). */
   detectionWorkspace?: CameraWorkspaceId;
-  /** Always asnn-dashboard (legacy cameras may have stored "universal"). */
-  inferenceBackend?: "asnn";
+  /** asnn object detection, or face live_stream for cameras3. */
+  inferenceBackend?: "asnn" | "face";
   model?: string;
   inferenceSessionId?: string;
   inferenceModelId?: string;
@@ -180,6 +194,16 @@ const Dashboard = ({ onLogout }: { onLogout: () => void }) => {
 
   const prevCamerasScopeRef = useRef<string | null>(null);
 
+  const handleModelRemoved = useCallback(
+    (removedWorkspaceIds: string[]) => {
+      setCameras(loadCamerasFromStorage(camerasStorageKey));
+      if (removedWorkspaceIds.includes(view)) {
+        setView("models");
+      }
+    },
+    [camerasStorageKey, view],
+  );
+
   useEffect(() => {
     const scopeChanged =
       prevCamerasScopeRef.current !== null && prevCamerasScopeRef.current !== camerasStorageKey;
@@ -263,6 +287,10 @@ const Dashboard = ({ onLogout }: { onLogout: () => void }) => {
   };
 
   const handleDeleteCamera = (cameraId: string) => {
+    const removed = cameras.find((c) => c.id === cameraId);
+    if (removed?.detectionWorkspace === "cameras3") {
+      void unregisterFaceStreamCamera(cameraId);
+    }
     setCameras((prev) => prev.filter((c) => c.id !== cameraId));
     setSelectedCamera((prev) => {
       if (!prev || prev.id !== cameraId) return prev;
@@ -275,9 +303,15 @@ const Dashboard = ({ onLogout }: { onLogout: () => void }) => {
     const sessions = cameras.map((c) => c.inferenceSessionId).filter(Boolean) as string[];
     // Stop any active sessions best-effort.
     void Promise.allSettled(
-      sessions.map((sid) =>
-        fetch(`/asnn/api/inference/stop/${encodeURIComponent(sid)}`, { method: "POST" }).catch(() => null),
-      ),
+      sessions.map((sid) => {
+        if (isFaceInferenceSession(sid)) {
+          const camId = sid.slice("face:".length);
+          return unregisterFaceStreamCamera(camId);
+        }
+        return fetch(`/asnn/api/inference/stop/${encodeURIComponent(sid)}`, { method: "POST" }).catch(
+          () => null,
+        );
+      }),
     ).finally(() => {
       try {
         localStorage.removeItem(camerasStorageKey);
@@ -325,16 +359,29 @@ const Dashboard = ({ onLogout }: { onLogout: () => void }) => {
       case "cameras2":
       case "cameras3":
       case "cameras4":
+      case "cameras5":
+      case "cameras6":
+      case "cameras7":
+      case "cameras8":
+      case "cameras9":
         return renderSuspended(
           <CamerasView
             workspaceId={view}
-            workspaceTitle={CAMERA_WORKSPACE_TITLE[view]}
+            workspaceTitle={CAMERA_WORKSPACE_TITLE[view] ?? view}
             cameras={camerasForWorkspace(cameras, view)}
             totalCameraCount={cameras.length}
             onAddCamera={handleAddCamera}
             onUpdateCamera={handleUpdateCamera}
             onDeleteCamera={handleDeleteCamera}
             onOpenLiveView={handleOpenLiveView}
+            onNavigate={(next) => {
+              if (next === "home" || next === "models") {
+                setView(next);
+              } else {
+                setView(next as DashboardView);
+              }
+            }}
+            onModelRemoved={handleModelRemoved}
           />
         );
       case "liveview":
@@ -357,7 +404,15 @@ const Dashboard = ({ onLogout }: { onLogout: () => void }) => {
       case "services":
         return renderSuspended(<ServicesView />);
       case "models":
-        return renderSuspended(<ModelsView />);
+        return renderSuspended(
+          <ModelsView
+            onNavigate={(id) => {
+              window.location.reload();
+              setTimeout(() => setView(id as DashboardView), 100);
+            }}
+            onModelRemoved={handleModelRemoved}
+          />,
+        );
       case "twin":
         return renderSuspended(<TwinView />);
       case "settings":
@@ -388,11 +443,13 @@ const Dashboard = ({ onLogout }: { onLogout: () => void }) => {
         // Avoid competing with Live View for the same session (some servers allow only one attach).
         excludeSessionId={view === "liveview" ? selectedCamera?.inferenceSessionId : undefined}
       />
+      <FaceInferenceEventsRecorder cameras={cameras} />
       <DashboardSidebar
         currentView={view === "liveview" ? liveViewReturn : view}
         onNavigate={setView}
         open={sidebarOpen}
         onToggle={() => setSidebarOpen(!sidebarOpen)}
+        onModelRemoved={handleModelRemoved}
       />
       <div className="flex-1 flex flex-col min-h-0">
         <DashboardTopBar
