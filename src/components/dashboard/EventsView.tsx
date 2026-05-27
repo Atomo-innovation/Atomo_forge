@@ -234,10 +234,7 @@ const EventsView = ({ cameras }: { cameras: CameraConfig[] }) => {
       </div>
 
       <p className="text-sm text-muted-foreground rounded-lg border border-border bg-card px-4 py-3">
-        To save detections to disk, open <span className="font-medium text-foreground">Person</span>,{" "}
-        <span className="font-medium text-foreground">Fire &amp; smoke</span>,{" "}
-        <span className="font-medium text-foreground">Face recognition</span>, or{" "}
-        <span className="font-medium text-foreground">Safety</span> and link an export folder on each tab (each tab uses its own folder).
+        Detections and images are saved directly to the database. No export folder setup is needed.
       </p>
 
       <div className="flex items-center justify-end">

@@ -9,7 +9,6 @@ import type { StoredDetectionEvent } from "@/services/detectionEventsStore";
 import { getDetectionEventById } from "@/services/detectionEventsStore";
 
 const EventDetailDialog = lazy(() => import("@/components/dashboard/EventDetailDialog"));
-import ExportFolderPanel from "@/components/dashboard/ExportFolderPanel";
 import {
   classificationBadgeLabel,
   countFaceListFilter,
@@ -356,27 +355,8 @@ const CamerasView = ({
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold tracking-tight">Recent detections</h2>
-              {isFaceWorkspace ? (
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Each event shows the <span className="font-medium text-foreground">person name</span> from
-                  detection with <span className="font-medium text-success">Known</span> or{" "}
-                  <span className="font-medium text-foreground">Unknown</span>.
-                </p>
-              ) : null}
-              {dbAvailable ? (
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Saving to MySQL <span className="font-medium">{eventsDatabaseForWorkspace(workspaceId)}</span> (
-                  {workspaceTitle}) · metadata + images
-                </p>
-              ) : (
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Local browser storage · run <span className="font-medium">migrate:events</span> on{" "}
-                  <span className="font-medium">atomo_forge</span> (no MeshCentral)
-                </p>
-              )}
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2 shrink-0 relative z-10">
-            <ExportFolderPanel workspaceId={workspaceId} workspaceTitle={workspaceTitle} />
             <div className="flex rounded-lg border border-border bg-muted/30 p-0.5">
               <button
                 type="button"
@@ -477,9 +457,7 @@ const CamerasView = ({
                             <img src={recentThumbUrls[e.id]} alt={e.label} className="w-full h-full object-cover" />
                           ) : null}
                         </div>
-                        <span className="font-medium text-foreground text-sm">
-                          {isFaceWorkspace ? faceDetectionDisplayLabel(e.face, e.label) : e.label}
-                        </span>
+                        <span className="font-medium text-foreground text-sm">{e.label}</span>
                       </div>
                     </td>
                     {isFaceWorkspace ? (
@@ -515,9 +493,7 @@ const CamerasView = ({
                         ? "No detections match your search. Try another time, camera name, or event label."
                         : isFaceWorkspace && faceListFilter !== "all"
                           ? `No ${FACE_LIST_FILTER_LABEL[faceListFilter].toLowerCase()} detections in this list.`
-                          : isFaceWorkspace
-                            ? "No face detections yet. Inference will send person name and Known / Unknown here."
-                            : "No detections yet. Start inference on a camera to see detections here."}
+                          : "No detections yet. Start inference on a camera to see detections here."}
                     </td>
                   </tr>
                 )}
@@ -557,7 +533,7 @@ const CamerasView = ({
                     </div>
                     <div className="p-3 space-y-1">
                       <div className="font-semibold text-foreground text-sm truncate">
-                        {isFaceWorkspace ? faceDetectionDisplayLabel(e.face, e.label) : e.label}
+                        {e.label}
                       </div>
                       {isFaceWorkspace && e.face ? (
                         <span

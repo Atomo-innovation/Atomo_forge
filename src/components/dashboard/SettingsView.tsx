@@ -170,7 +170,7 @@ const SettingsView = ({
           <div className="flex-1">
             <div className="font-semibold text-foreground">Reset local data</div>
             <div className="text-sm text-muted-foreground">
-              Clears saved cameras, saved events, and unlinks any export folder on this browser. Use this when you want a clean start.
+              Clears saved cameras and saved events from this browser. Use this when you want a clean start.
             </div>
           </div>
         </div>
@@ -182,8 +182,7 @@ const SettingsView = ({
             <AlertDialogHeader>
               <AlertDialogTitle>Reset everything?</AlertDialogTitle>
               <AlertDialogDescription>
-                This will stop any running AI sessions, delete all cameras and all detection events from this browser, and unlink the disk export folder (if linked).
-                Exported files already written to disk will remain.
+                This will stop any running AI sessions, delete all cameras and all detection events from this browser.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
