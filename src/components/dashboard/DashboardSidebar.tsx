@@ -14,7 +14,7 @@ import {
 import { useState, useEffect } from "react";
 import type { DashboardView } from "@/pages/Dashboard";
 import { loadDynamicWorkspaces } from "@/pages/Dashboard";
-import { EVENTS_TAB_ENABLED } from "@/lib/featureFlags";
+import { EVENTS_TAB_ENABLED, isBuiltinWorkspaceEnabled } from "@/lib/featureFlags";
 import { cn } from "@/lib/utils";
 
 const SIDEBAR_LOGO_SRC = `${import.meta.env.BASE_URL}al.png`;
@@ -140,25 +140,43 @@ return (
             <ul className="space-y-0.5">
               {group.items.map((item) => {
                 const active = currentView === item.id;
+                const disabled = !isBuiltinWorkspaceEnabled(item.id);
                 return (
                   <li key={item.id}>
                     <div
                       className={cn(
                         "flex w-full items-center gap-0.5 rounded-lg transition-colors",
-                        active ? "bg-sidebar-accent" : "hover:bg-sidebar-accent/70",
+                        disabled
+                          ? "opacity-45"
+                          : active
+                            ? "bg-sidebar-accent"
+                            : "hover:bg-sidebar-accent/70",
                       )}
                     >
                       <button
                         type="button"
-                        onClick={() => onNavigate(item.id)}
-                        title={!open ? item.label : undefined}
+                        disabled={disabled}
+                        onClick={() => {
+                          if (!disabled) onNavigate(item.id);
+                        }}
+                        title={
+                          !open
+                            ? disabled
+                              ? `${item.label} (disabled)`
+                              : item.label
+                            : disabled
+                              ? `${item.label} — not available yet`
+                              : undefined
+                        }
                         className={cn(
                           "flex min-w-0 flex-1 items-center gap-3 py-2.5 text-sm font-medium transition-colors",
                           open ? "px-3" : "justify-center px-0",
-                          active
+                          disabled && "cursor-not-allowed",
+                          active && !disabled
                             ? cn("text-sidebar-foreground", open && "border-l-2 border-primary pl-[10px]")
                             : cn(
-                                "text-sidebar-foreground/70 hover:text-sidebar-foreground",
+                                "text-sidebar-foreground/70",
+                                !disabled && "hover:text-sidebar-foreground",
                                 open && "border-l-2 border-transparent pl-[10px]",
                               ),
                         )}
@@ -166,7 +184,7 @@ return (
                         <item.icon
                           className={cn(
                             "h-[1.125rem] w-[1.125rem] shrink-0",
-                            active ? "text-primary" : "text-sidebar-foreground/60",
+                            active && !disabled ? "text-primary" : "text-sidebar-foreground/60",
                           )}
                         />
                         {open ? <span className="truncate">{item.label}</span> : null}

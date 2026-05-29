@@ -13,7 +13,7 @@ import { clearAllExportRootDirectoryHandles } from "@/services/detectionFolderEx
 import { clearAllServerExportFolders } from "@/services/detectionExportServer";
 import { clearCameraRegistry } from "@/services/cameraRegistry";
 import { clearCameraIdMap, getCameraFingerprint, getOrCreateStableCameraId } from "@/services/cameraIdentity";
-import { EVENTS_TAB_ENABLED } from "@/lib/featureFlags";
+import { EVENTS_TAB_ENABLED, isDetectionViewEnabled } from "@/lib/featureFlags";
 import { MAX_CAMERAS, MAX_CAMERAS_MESSAGE } from "@/lib/cameraLimits";
 import { toast } from "sonner";
 
@@ -240,8 +240,19 @@ const Dashboard = ({ onLogout }: { onLogout: () => void }) => {
     if (!EVENTS_TAB_ENABLED && view === "events") setView("home");
   }, [view]);
 
+  useEffect(() => {
+    if (!isDetectionViewEnabled(view)) setView("cameras");
+  }, [view]);
+
+  const handleNavigate = useCallback((next: DashboardView) => {
+    if (!isDetectionViewEnabled(next)) return;
+    setView(next);
+  }, []);
+
   const handleOpenLiveView = (camera: CameraConfig) => {
-    setLiveViewReturn(CAMERA_PANEL_VIEWS.includes(view) ? view : "home");
+    setLiveViewReturn(
+      CAMERA_PANEL_VIEWS.includes(view) && isDetectionViewEnabled(view) ? view : "home",
+    );
     setSelectedCamera(camera);
     setView("liveview");
   };
@@ -386,7 +397,11 @@ const Dashboard = ({ onLogout }: { onLogout: () => void }) => {
         );
       case "liveview":
         return renderSuspended(
-          <LiveViewScreen camera={selectedCamera} onBack={() => setView(liveViewReturn)} onUpdateCamera={handleUpdateCamera} />
+          <LiveViewScreen
+            camera={selectedCamera}
+            onBack={() => setView(isDetectionViewEnabled(liveViewReturn) ? liveViewReturn : "cameras")}
+            onUpdateCamera={handleUpdateCamera}
+          />
         );
       case "events":
         if (EVENTS_TAB_ENABLED) {
@@ -446,7 +461,7 @@ const Dashboard = ({ onLogout }: { onLogout: () => void }) => {
       <FaceInferenceEventsRecorder cameras={cameras} />
       <DashboardSidebar
         currentView={view === "liveview" ? liveViewReturn : view}
-        onNavigate={setView}
+        onNavigate={handleNavigate}
         open={sidebarOpen}
         onToggle={() => setSidebarOpen(!sidebarOpen)}
         onModelRemoved={handleModelRemoved}

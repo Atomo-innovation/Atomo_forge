@@ -2,6 +2,7 @@ import { useLayoutEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Usb, Wifi, CircuitBoard, X } from "lucide-react";
 import { CAMERA_WORKSPACE_TITLE, type CameraConfig, type CameraWorkspaceId } from "@/pages/Dashboard";
+import { isBuiltinWorkspaceEnabled } from "@/lib/featureFlags";
 import { getCameraFingerprint, getOrCreateStableCameraId } from "@/services/cameraIdentity";
 import ModelSelector from "@/components/dashboard/ModelSelector";
 import { useWorkspaceModels } from "@/hooks/useWorkspaceModels";
@@ -142,8 +143,9 @@ const isAutoSelectWorkspace = workspaceId === "cameras" || workspaceId === "came
           className="w-full rounded-lg border border-border bg-muted px-4 py-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
         >
           {(Object.keys(CAMERA_WORKSPACE_TITLE) as CameraWorkspaceId[]).map((id) => (
-            <option key={id} value={id}>
+            <option key={id} value={id} disabled={!isBuiltinWorkspaceEnabled(id)}>
               {CAMERA_WORKSPACE_TITLE[id]}
+              {!isBuiltinWorkspaceEnabled(id) ? " (disabled)" : ""}
             </option>
           ))}
         </select>

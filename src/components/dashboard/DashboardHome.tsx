@@ -18,6 +18,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { Columns2, GripVertical, Maximize2, Plus, Camera, BarChart3, TrendingUp, Clock, Target, PencilLine } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CAMERA_WORKSPACE_TITLE, type CameraConfig, type CameraWorkspaceId } from "@/pages/Dashboard";
+import { isBuiltinWorkspaceEnabled } from "@/lib/featureFlags";
 import { AddCameraModal } from "@/components/dashboard/AddCameraModal";
 import { RenameCameraDialog } from "@/components/dashboard/RenameCameraDialog";
 import {
@@ -248,6 +249,10 @@ const DashboardHome = ({ cameras, onAddCamera, onUpdateCamera, onViewCamera, onO
   }, [layoutV2Key, layoutV1Key]);
   const [overviewAddOpen, setOverviewAddOpen] = useState(false);
   const [overviewWorkspace, setOverviewWorkspace] = useState<CameraWorkspaceId>("cameras");
+
+  useEffect(() => {
+    if (!isBuiltinWorkspaceEnabled(overviewWorkspace)) setOverviewWorkspace("cameras");
+  }, [overviewWorkspace]);
   const [renameTarget, setRenameTarget] = useState<CameraConfig | null>(null);
   const [recentEvents, setRecentEvents] = useState<StoredDetectionEvent[]>([]);
   const [chartEvents, setChartEvents] = useState<StoredDetectionEvent[]>([]);
